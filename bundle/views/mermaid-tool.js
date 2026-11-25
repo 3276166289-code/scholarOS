@@ -67,7 +67,7 @@ const MermaidTool=(()=>{
         if(disposed||ticket!==sequence||!host.isConnected)return;
         const engine=await library(),stage=document.createElement('div');stage.className='mmt-stage';document.body.append(stage);
         try{
-          engine.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:state.theme,fontFamily:'Microsoft YaHei, Segoe UI, Arial, sans-serif',maxTextSize:200000,maxEdges:1000,arrowMarkerAbsolute:false,
+          engine.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,theme:state.theme,fontFamily:'Inter, Segoe UI, Arial, sans-serif',maxTextSize:200000,maxEdges:1000,arrowMarkerAbsolute:false,
             secure:['secure','securityLevel','startOnLoad','htmlLabels','flowchart','themeCSS','theme','themeVariables','fontFamily','maxTextSize','maxEdges'],flowchart:{htmlLabels:false,useMaxWidth:false}});
           const rendered=await engine.render('mm_'+crypto.randomUUID().replaceAll('-',''),code,stage);
           if(disposed||ticket!==sequence||!host.isConnected)return;

@@ -223,7 +223,11 @@ anna-app dev --no-llm                    # 无 PAT 也能开发
 
 ---
 
-### P1 — 英文基线与归零门禁（4–5 天）🟡 工具已就绪，改写未开始
+### P1 — 英文基线与归零门禁（4–5 天）✅ 已完成
+
+**结果（2026-11-25）**：`bash tools/lint-cjk.sh` = OK（66 个非 vendor 文件 0 行 CJK / 全角标点），`node --check` 66/66 通过，`anna-app validate` 通过。字体栈里的 Microsoft YaHei / PingFang / SimSun / KaiTi 已换成 Inter / Georgia / JetBrains Mono。
+
+遗留（不阻塞 P2）：示例数据仍是中文论文 3 篇；`docs/style-en.md` 未写。
 
 **不做运行时 i18n**。这是纯英文版，没有语言切换需求，所以不建 `i18n/en.json`、不做 key 查表——直接在原文件里把文案改写成英语。省掉一整层框架和 60 个文件的取值改造。
 

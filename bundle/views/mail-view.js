@@ -297,7 +297,7 @@
     const inject = `<base target="_blank">
 <style>
 html, body { margin: 0; padding: 12px 16px; font-size: 14px; line-height: 1.75; word-break: break-word;
-  font-family: "Times New Roman", "Microsoft YaHei", "PingFang SC", sans-serif; color: #17231f; background: #fff; }
+  font-family: "Times New Roman", "Inter", "Inter", sans-serif; color: #17231f; background: #fff; }
 img { max-width: 100%; height: auto; }
 table { max-width: 100% !important; }
 pre { white-space: pre-wrap; }

@@ -46,7 +46,7 @@ html[data-theme=light] .ec-workspace {
 .ec-kpi-label{grid-column:1/-1;display:flex;gap:8px;align-items:center;font-size:11px;font-weight:550;color:var(--muted)}
 .ec-kpi-label i,.ec-lane-dot,.ec-status i{width:7px;height:7px;border-radius:50%;background:var(--ec-tone);flex:none}
 .ec-kpi-wrap{position:relative;min-width:0}.ec-kpi-wrap>.ec-kpi{width:100%;height:100%;box-sizing:border-box}.ec-kpi-wrap:has(.ec-kpi-clear) .ec-kpi-label{padding-right:40px}.ec-kpi-clear{position:absolute;right:8px;top:9px;font-size:11px}.ec-lane-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}.ec-lane-actions button{font-size:11px}.ec-kpi-clear:disabled,.ec-lane-actions button:disabled{opacity:.4;cursor:default}
-.ec-kpi strong{font:650 27px/1.2 "Segoe UI Variable", "Microsoft YaHei UI",sans-serif;font-variant-numeric:tabular-nums;color:var(--ec-tone)}
+.ec-kpi strong{font:650 27px/1.2 "Segoe UI Variable", "Inter",sans-serif;font-variant-numeric:tabular-nums;color:var(--ec-tone)}
 .ec-kpi-caption{font-size:10px;color:var(--muted)}
 .ec-lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:14px;align-items:start;min-width:0}
 .ec-lanes[data-lane-count="1"]{grid-template-columns:minmax(0,420px)}

@@ -250,7 +250,7 @@ async function mdExport(fmt){
     if(!w) return uiNotify("The browser blocked the print window");
     w.document.write(`<title>${esc(note.title)}</title><link rel="stylesheet" href="/vendor/katex/katex.min.css">
 <link rel="stylesheet" href="/vendor/starmap.css">`
-      + `<style>body{font:14px/1.75 "Microsoft YaHei",sans-serif;padding:32px;max-width:860px;margin:auto}`
+      + `<style>body{font:14px/1.75 "Inter",sans-serif;padding:32px;max-width:860px;margin:auto}`
       + `pre{background:#202124;color:#f4f5f7;padding:12px;border-radius:6px;overflow:auto}`
       + `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 9px}`
       + `blockquote{border-left:3px solid #888;margin:.8em 0;padding:.25em 1em;color:#444}</style>`
@@ -719,7 +719,7 @@ function spBodyHTML(d){
             <button class="md-tool-btn" data-md-command="italic" title="Italic"><i>I</i></button>
             <button class="md-tool-btn" data-md-command="highlight" title="Highlight">Highlight</button>
             <select class="md-tool-select" data-md-command="align" title="Alignment"><option value="">Align</option><option value="left">Align left</option><option value="center">Centre</option><option value="right">Align right</option></select>
-            <select class="md-tool-select" data-md-command="font" title="Font"><option value="">Font</option><option value="Microsoft YaHei">Microsoft YaHei</option><option value="SimSun">SimSun</option><option value="KaiTi">KaiTi</option><option value="Times New Roman">Times New Roman</option></select>
+            <select class="md-tool-select" data-md-command="font" title="Font"><option value="">Font</option><option value="Inter">Inter</option><option value="Georgia">Georgia</option><option value="JetBrains Mono">JetBrains Mono</option><option value="Times New Roman">Times New Roman</option></select>
             <select class="md-tool-select" data-md-command="size" title="Size"><option value="">Size</option><option value="12px">12</option><option value="14px">14</option><option value="16px">16</option><option value="18px">18</option><option value="24px">24</option><option value="32px">32</option></select>
             <span class="md-tool-sep"></span>
             <button class="md-tool-btn" data-md-command="ul" title="Bulleted list">• List</button>
