@@ -37,6 +37,15 @@ def main() -> None:
     pending += [(t, c) for t, c in scan["comments"] if t not in done]
     pending.sort(key=lambda tc: (len(tc[0]), -tc[1]))
 
+    if "--applicable" in sys.argv:
+        # Only what tools/i18n-translate.py will actually splice: short enough
+        # for one line of source, and balanced templates.
+        pending = [
+            tc
+            for tc in pending
+            if len(tc[0]) <= 120 and tc[0].count("${") == tc[0].count("}")
+        ]
+
     limit = arg("--pending", 200)
     ceiling = arg("--max", 10_000)
     picked = [tc for tc in pending if len(tc[0]) <= ceiling][:limit]
