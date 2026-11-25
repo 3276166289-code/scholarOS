@@ -1,0 +1,33 @@
+{
+  "schema": 4,
+  "required_executas": [
+    {
+      "tool_id": "paper-core"
+    }
+  ],
+  "tags": ["scholaros"],
+  "ui": {
+    "bundle": {
+      "format": "static-spa",
+      "entry": "index.html",
+      "external_origins": []
+    },
+    "views": [
+      {
+        "name": "main",
+        "title": "scholarOS",
+        "default": true,
+        "default_size": { "w": 480, "h": 360 },
+        "min_size": { "w": 320, "h": 240 }
+      }
+    ],
+    "csp_overrides": {},
+    "browser_permissions": ["fullscreen", "clipboard-read"],
+    "state_merge": "last_writer_wins"
+  },
+  "dev": {
+    "fixtures": ["fixtures/*.jsonl"],
+    "seed_storage": {},
+    "user_id": 1
+  }
+}
