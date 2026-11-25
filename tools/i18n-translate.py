@@ -91,7 +91,13 @@ def rewrite(text: str, table: dict[str, str]) -> tuple[str, int]:
         if not CJK.search(raw):
             continue
         value = table.get(raw)
-        if value is None or "*/" in value:
+        if value is None:
+            continue
+        # A block comment's own terminator is part of the key, so allow the one
+        # closing "*/" and reject any extra one that would cut the comment short.
+        if raw.startswith("/*") and value.count("*/") > 1:
+            continue
+        if not raw.startswith(("//", "/*", "<!--", "#")) and "*/" in value:
             continue
         out.append(text[index : match.start()])
         out.append(value)
