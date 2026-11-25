@@ -170,10 +170,29 @@ const today = ()=>new Date().toLocaleDateString("sv-SE");
 const clock = (d = new Date())=>{ const w = "Su Mo Tu We Th Fr Sa"[d.getDay()];   // 2026.10.4 Sunday 23:55
   return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} (${w}) ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
 
+// Anna shim: resolved once. null = still unknown, false = no shim (local backend).
+let annaShim;
+async function annApi(){
+  if(annaShim !== undefined) return annaShim || null;
+  try{
+    const mod = await import('../api.js');
+    await mod.connect();
+    annaShim = mod.request;
+  }catch(e){ annaShim = false; }
+  return annaShim || null;
+}
+
 async function api(path, opts){
   let init = {};
   if(opts && (opts.method || opts.body || opts.headers)) init = {...opts};
   else if(opts) init = {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(opts)};
+  const shim = await annApi();
+  if(shim && String(path).startsWith('/api/')){
+    let body;
+    if(init.body && typeof init.body === 'string'){ try{ body = JSON.parse(init.body); }catch(e){ body = init.body; } }
+    else if(init.body) body = init.body;
+    return await shim(path, {method: init.method || 'GET', body});
+  }
   const r = await fetch(path, init);
   const j = await r.json().catch(()=>({error:"Response is not JSON"}));
   if(!r.ok || (j && j.error)) throw new Error(j?.error || `Request failed (${r.status})`);
@@ -276,7 +295,7 @@ function renderSidebar(){
   const open = navResearchOpen || researchActive;
   $("sidebar").className = "sidebar"+(sidebarCollapsed?" collapsed":"");
   $("sidebar").innerHTML = `
-    <div class="brand"><img class="mark" src="/mark.png" alt="">
+    <div class="brand"><img class="mark" src="../mark.png" alt="">
       <div class="lbl" style="min-width:0"><b>scholarOS</b><small>Project research space</small></div>
       <button class="collapse" title="${sidebarCollapsed?"Expand sidebar":"Collapse sidebar"}">${sidebarCollapsed?"›":"‹"}</button></div>
     <button type="button" class="profile-card" id="profileCard" title="Click to edit your profile">

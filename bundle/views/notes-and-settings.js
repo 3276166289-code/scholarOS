@@ -248,8 +248,8 @@ async function mdExport(fmt){
   if(fmt==="pdf"){                                   // use browser print → save as PDF
     const w = window.open("", "_blank");
     if(!w) return uiNotify("The browser blocked the print window");
-    w.document.write(`<title>${esc(note.title)}</title><link rel="stylesheet" href="/vendor/katex/katex.min.css">
-<link rel="stylesheet" href="/vendor/starmap.css">`
+    w.document.write(`<title>${esc(note.title)}</title><link rel="stylesheet" href="../vendor/katex/katex.min.css">
+<link rel="stylesheet" href="../vendor/starmap.css">`
       + `<style>body{font:14px/1.75 "Inter",sans-serif;padding:32px;max-width:860px;margin:auto}`
       + `pre{background:#202124;color:#f4f5f7;padding:12px;border-radius:6px;overflow:auto}`
       + `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 9px}`
@@ -2139,7 +2139,7 @@ if(savedRoute && (TITLES[savedRoute]||savedRoute==='workbench') && savedRoute !=
 }
 setInterval(()=>{ const el=document.querySelector(".topbar .date"); if(el) el.textContent=clock();
   const g=$("calHelloText"); if(g) g.textContent=helloText(); }, 30000);   // top bar date/time ticks on its own; the greeting follows the time
-const initialAppState = refreshState().catch(e=>{ $("main").innerHTML=`<div class="msg error">Load failed: ${esc(e.message)}</div>`; });
+const initialAppState = refreshState().catch(e=>{ $("main").innerHTML=`<div class="msg error">Load failed: ${esc(e.message)}</div>`; console.error('boot', e); window.__bootErr = String(e.stack||e); });
 document.addEventListener('DOMContentLoaded', async()=>{
   await initialAppState;
   if(S.loaded)await AppNavigation.start();

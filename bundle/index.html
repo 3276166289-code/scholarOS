@@ -1,13 +1,202 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>scholaros</title>
-    <script src="./app.js" type="module"></script>
-  </head>
-  <body>
-    <h1>scholaros</h1>
-    <button id="primary-btn">Run</button>
-    <pre id="status">...</pre>
-  </body>
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>scholarOS</title>
+<script>
+/* Build stamp in the title: the launcher uses it to tell which window belongs to this build (--app re-use is unreliable) */
+document.title = "scholarOS · v" + (new URLSearchParams(location.search).get("v") || "dev");
+/* Theme is pinned before the first frame: waiting for refreshState showed light-mode users a dark frame first (still a flash) */
+document.documentElement.dataset.theme = localStorage.getItem("rw-theme") || "dark";
+const savedZoom = localStorage.getItem("rw-ui-zoom");
+if (savedZoom && !isNaN(parseFloat(savedZoom))) document.documentElement.style.zoom = savedZoom;
+</script>
+<link rel="stylesheet" href="./css/app.css">
+<link rel="stylesheet" href="./css/interactions.css">
+<link rel="stylesheet" href="./css/notebook.css">
+<link rel="stylesheet" href="./views/usage-view.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="content">
+    <header class="topbar pywebview-drag-region" id="topbar"></header>
+    <section id="globalTodo" class="global-todo" aria-label="Quick to-dos"></section>
+    <div class="tabsbar" id="tabsbar"></div>
+    <nav class="app-return" id="appReturn" aria-label="Back to the previous page" hidden>
+      <button type="button" class="btn ghost" id="appReturnButton"><span aria-hidden="true">←</span><span id="appReturnLabel"></span></button>
+    </nav>
+    <div class="body"><main class="main" id="main" tabindex="-1" aria-label="Main content"></main></div>
+    <footer class="statusbar" id="statusbar"></footer>
+  </div>
+</div>
+
+<!-- Profile dialog (pinned fields only, nothing else stored) -->
+<div id="profileModal" class="modal hidden">
+  <div class="modal-mask"></div>
+  <div class="modal-dialog" style="width:400px">
+    <div class="modal-head"><h3>Profile</h3><button class="modal-close" id="btnProfClose">✕</button></div>
+    <div class="modal-body">
+      <label class="field"><span>Display name</span><input id="profName" class="tb-input" style="width:100%" placeholder="e.g. Alex Chen"></label>
+      <label class="field"><span>Avatar Emoji</span><input id="profAvatar" class="tb-input" style="width:100%" placeholder="🎓" maxlength="4"></label>
+      <label class="field"><span>Avatar photo (used first when set, the emoji stays as a fallback)</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="file" id="profPhotoFile" accept="image/*" style="display:none">
+          <button type="button" class="btn ghost" id="btnProfPhotoPick">+ Upload photo</button>
+          <button type="button" class="btn ghost" id="btnProfPhotoClear">Restore default (🎓)</button>
+          <img id="profPhotoPrev" class="prof-photo-prev" alt="">
+        </div></label>
+      <label class="field"><span>Field of study</span><input id="profField" class="tb-input" style="width:100%" placeholder="e.g. Materials Science and Engineering"></label>
+    </div>
+    <div class="modal-foot">
+      <button id="btnProfSave" class="btn btn-primary">Save</button>
+      <button id="btnProfCancel" class="btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="zoteroModal" class="modal hidden">
+  <div class="modal-mask"></div>
+  <div class="modal-dialog modal-wide">
+    <div class="modal-head"><h3>Add from Zotero</h3><button class="modal-close" id="btnZotClose">✕</button></div>
+    <div class="modal-body">
+      <p class="modal-desc" id="zotStatus">Connecting to the local Zotero library...</p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <select id="zotCollection" class="control" style="max-width:220px" title="Pick a Zotero collection"></select>
+        <input id="zotQuery" class="control" placeholder="Search by title, author, or tag..." style="max-width:240px">
+        <button class="btn ghost" id="zotSearch">Search</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;margin-left:4px">
+          <input type="checkbox" id="zotSelectAll"> <span>Select this page</span>
+        </label>
+        <span style="flex:1"></span>
+        <button class="btn btn-primary" id="zotToProject" disabled>Add the selected papers to the project</button>
+        <span class="hint" id="zotCount"></span>
+      </div>
+      <div id="zotList" class="md-note-list" style="max-height:44vh;overflow:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette (Ctrl+K) -->
+<div id="cmdPaletteModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Search commands and pages">
+  <div class="modal-mask" id="cmdPaletteMask"></div>
+  <div class="modal-dialog cmd-palette-dialog">
+    <div class="cmd-palette-head">
+      <span class="cmd-palette-ico">⚡</span>
+      <input id="cmdPaletteInput" class="cmd-palette-input" role="combobox" aria-label="Search commands and pages" aria-autocomplete="list" aria-controls="cmdPaletteResults" aria-expanded="false" placeholder="Search actions, pages, or projects..." autocomplete="off">
+      <button type="button" class="modal-close" id="cmdPaletteClose" aria-label="Close the command palette">✕</button>
+    </div>
+    <div class="cmd-palette-body" id="cmdPaletteResults" role="listbox"></div>
+    <div class="cmd-palette-foot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> to navigate</span>
+      <span><kbd>Enter</kbd> Run</span>
+      <span><kbd>Esc</kbd> to close</span>
+      <button type="button" class="command-help-link" data-command="help">View all shortcuts</button>
+    </div>
+  </div>
+</div>
+
+<!-- Diff review studio -->
+<div id="diffModal" class="modal hidden">
+  <div class="modal-mask" id="diffModalMask"></div>
+  <div class="modal-dialog modal-wide diff-dialog">
+    <div class="modal-head">
+      <h3><span id="diffModalTitle">Compare body changes and merge both ways</span></h3>
+      <button class="modal-close" id="btnDiffClose">✕</button>
+    </div>
+    <div class="modal-body diff-modal-body">
+      <div class="diff-stats" id="diffStats"></div>
+      <div class="diff-split-view" id="diffContainer"></div>
+    </div>
+    <div class="modal-foot">
+      <button id="btnDiffAccept" class="btn btn-primary">Accept all changes</button>
+      <button id="btnDiffReject" class="btn ghost">Reject the suggestions, keep the original</button>
+      <button id="btnDiffCancel" class="btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="./vendor/starmap.js"></script>
+<script src="./vendor/lunar/lunar.js"></script>
+<script src="./vendor/pdfjs/pdf.min.js"></script>
+<link rel="stylesheet" href="./vendor/katex/katex.min.css">
+<link rel="stylesheet" href="./vendor/starmap.css">
+<script src="./vendor/marked/marked.umd.js"></script>
+<script src="./vendor/dompurify/purify.min.js"></script>
+<script src="./vendor/katex/katex.min.js"></script>
+<script src="./views/app-core.js"></script>
+<script src="./views/app-navigation.js"></script>
+<script src="./views/chat-views.js"></script>
+<script src="./views/team-office.js"></script>
+<script src="./views/project-files.js"></script>
+<script src="./views/calendar-view.js"></script>
+<script src="./views/mail-template.js"></script>
+<script src="./views/mail-view.js"></script>
+<script src="./views/starmap-view.js"></script>
+<script src="./views/notes-and-settings.js"></script>
+<script src="./views/notebook.js"></script>
+<script src="./views/prompt-templates.js"></script>
+<script src="./views/diff-viewer.js"></script>
+<script src="./views/agent-settings.js"></script>
+<script src="./views/skill-installer.js"></script>
+<script src="./views/capabilities.js"></script>
+<script src="./views/workflow-layout.js"></script>
+<script src="./views/message-channels.js"></script>
+<script src="./views/usage-view.js"></script>
+<script src="./views/integrations-settings.js"></script>
+<script src="./views/rss-settings.js"></script>
+<script src="./views/project-zotero.js"></script>
+<script src="./views/project-literature.js"></script>
+<script src="./views/literature-import.js"></script>
+<script src="./views/intelligence-view.js"></script>
+<link rel="stylesheet" href="./views/intelligence-view.css">
+<script src="./views/platform-nav.js"></script>
+<script src="./views/project-space.js"></script>
+<script src="./views/global-todo.js"></script>
+<script src="./views/executor-choices.js"></script>
+<script src="./views/project-task-ui.js"></script>
+<script src="./views/file-handoff.js"></script>
+<script src="./views/interactions.js"></script>
+<script src="./views/connected-research.js"></script>
+<link rel="stylesheet" href="./views/project-workspace.css">
+<link rel="stylesheet" href="./views/project-literature.css">
+<link rel="stylesheet" href="./views/workspace-trajectory.css">
+<script src="./views/workspace-trajectory.js"></script>
+<script src="./views/agent-runtime.js"></script>
+<script src="./views/task-center.js"></script>
+<link rel="stylesheet" href="./views/execution-conversation.css">
+<script src="./views/execution-conversation.js"></script>
+<script src="./views/task-actions.js"></script>
+<script src="./views/list-search.js"></script>
+<script src="./views/conversation-history.js"></script>
+<script src="./views/prompt-library.js"></script>
+<link rel="stylesheet" href="./views/prompt-library.css">
+<script src="./views/mermaid-tool.js"></script>
+<link rel="stylesheet" href="./views/mermaid-tool.css">
+<script src="./views/file-drop.js"></script>
+<script src="./views/paper-toolbox.js"></script>
+<script src="./views/paper-translation.js"></script>
+<link rel="stylesheet" href="./views/paper-toolbox.css">
+<link rel="stylesheet" href="./views/conversation-history.css">
+<link rel="stylesheet" href="./views/execution-board.css">
+<script src="./views/project-manager.js"></script>
+<link rel="stylesheet" href="./views/project-workflow-graph.css">
+<script src="./views/project-workflow-graph.js"></script>
+<script src="./views/project-output-review.js"></script>
+<script src="./views/workflow-review.js"></script>
+<link rel="stylesheet" href="./views/workflow-node-workbench.css">
+<script src="./views/node-registry.js"></script>
+<script src="./views/workflow-node-literature.js"></script>
+<script src="./views/workflow-node-download.js"></script>
+<script src="./views/workflow-node-notes.js"></script>
+<script src="./views/workflow-node-outline.js"></script>
+<script src="./views/workflow-node-review.js"></script>
+<script src="./views/workflow-node-translation.js"></script>
+<script src="./views/workflow-node-map.js"></script>
+<script src="./views/workflow-node-workbench.js"></script>
+<script src="./views/project-workspace.js"></script>
+<script src="./views/project-resources.js"></script>
+</body>
 </html>

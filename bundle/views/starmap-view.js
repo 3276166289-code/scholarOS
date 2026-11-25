@@ -8,7 +8,7 @@ function renderStar(m){
       <button class="btn ghost" id="smRebuild" type="button" style="margin-left:8px" title="Rescan and rebuild once (normally it reads the last build and never recomputes)">Rebuild the star map</button>
     </div>
     <div class="sm-search"><input class="control" type="search" aria-label="Search knowledge-base projects" placeholder="Search knowledge-base projects by name or research question"><div data-sm-results hidden></div></div>
-    <iframe id="kbFrame" class="sm-frame" src="/kb.html?theme=dark" title="Knowledge star map"></iframe>
+    <iframe id="kbFrame" class="sm-frame" src="../kb.html?theme=dark" title="Knowledge star map"></iframe>
   </div>`;
   const rb = m.querySelector("#smRebuild"), fr = m.querySelector("#kbFrame"), zb = m.querySelector("#smZotero");
   const search=m.querySelector('.sm-search input'),results=m.querySelector('[data-sm-results]');

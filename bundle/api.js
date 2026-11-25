@@ -88,6 +88,17 @@ const PREFIX_KINDS = [
   ["/api/", "storage"],
 ];
 
+// Empty-but-valid shapes for the three bootstrap reads. Without them the shell
+// dies on `undefined.length` because Anna has no backend to seed it.
+// ponytail: only the bootstrap reads are seeded; every other endpoint still
+// needs its own mapping before its screen works.
+const SEEDS = {
+  "/api/state": { tasks: [], chats: [], assistants: [], models: [], active: null, events: [], stages: [] },
+  "/api/providers": { providers: [], wires: [], default: null },
+  "/api/tools": { tools: [] },
+  "/api/conversation-history": { conversations: [] },
+};
+
 let anna = null;
 
 export async function connect() {
@@ -136,8 +147,17 @@ export async function request(path, { method = "GET", body } = {}) {
       return call("tools", "getJob", { jobId: body?.job_id || body?.id });
     case "llm":
       return call("llm", route.method || "complete", body);
-    case "storage":
-      return call("storage", method === "GET" ? "get" : "set", { key: body?.key ?? route.path ?? path, value: body?.value });
+    case "storage": {
+      const key = route.path ?? String(path).split("?")[0];
+      // the SDK answers {value} rather than the bare value
+      const unwrap = (raw) => (raw && typeof raw === "object" && "value" in raw ? raw.value : raw);
+      if (method === "GET") {
+        const stored = unwrap(await call("storage", "get", { key }));
+        if (stored != null) return stored;
+        return SEEDS[key] ? structuredClone(SEEDS[key]) : null;
+      }
+      return unwrap(await call("storage", "set", { key, value: body }));
+    }
     default:
       throw new Error(`scholarOS: unhandled route kind ${route.kind}`);
   }
