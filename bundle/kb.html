@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Knowledge star map</title>
+<link rel="stylesheet" href="/vendor/neural/neural.css">
+<link rel="stylesheet" href="/vendor/neural/kb.css">
+</head>
+<body>
+<div id="kb-root"></div>
+<script type="module">
+import {mount} from '/vendor/neural/scene.js';
+
+const q = new URLSearchParams(location.search);
+const root = document.getElementById('kb-root');
+
+// The star map palette is drawn for deep space: on a light background the star lines, nebulas, and labels all blur, so it only renders in dark mode
+if ((q.get('theme') || 'dark') !== 'dark') {
+  document.documentElement.dataset.theme = 'light';
+  root.innerHTML = `<div class="kb-dark-only">
+      <div class="kb-dark-moon">🌙</div>
+      <h2>Switch to dark mode to view the knowledge star map</h2>
+      <p>The core, nebulae, and constellation lines are drawn frame by frame for a dark sky and lose contrast on light backgrounds.</p>
+      <button id="kbToDark">Switch to dark mode</button>
+    </div>`;
+  document.getElementById('kbToDark').onclick = () => parent.postMessage({rw: 'theme', theme: 'dark'}, '*');
+} else {
+  // without task: The first level is the project (knowledge base → Project → branch); with task: Deep link straight to that project’s branch level
+  // branches read compiled output, built once on first visit; rebuild=1 recompiles
+  const tid = q.get('task') || '';
+  const rb = q.get('rebuild') ? '&rebuild=1' : '';
+  fetch('/api/starmap' + (tid ? '?task=' + encodeURIComponent(tid) + rb : '')).then(r => r.json()).then(api => {
+    const empty = !api || (api.level === 'projects' ? !(api.projects || []).length : !api.task);
+    if (empty) {
+      root.innerHTML = '<p style="padding:40px;color:#8b9bb0">No projects yet - create one on the Projects page first, then the star map has something to draw.</p>';
+      return;
+    }
+    window.__kb = mount(root, api, {focus: q.get('open') || ''});
+  }).catch(err => {
+    root.innerHTML = '<p style="padding:40px;color:#f87171">Star map failed to load:' + err.message + '</p>';
+  });
+}
+</script>
+</body>
+</html>

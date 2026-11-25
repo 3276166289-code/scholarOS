@@ -7,4 +7,3 @@ dist/
 
 # ponytail: bundle/ stays out until the views are English and every vendored
 # library ships its LICENSE. Nothing the listing needs lives there.
-bundle/
