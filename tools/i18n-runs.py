@@ -34,12 +34,19 @@ def files() -> list[Path]:
     ]
 
 
+def safe(value: str) -> str:
+    """English needs apostrophes; a run can land inside '...' — use ’, not '."""
+    return value.replace("`", "'").replace("'", "\u2019").replace('"', "\u201d")
+
+
 def load_runs() -> dict[str, str]:
     merged: dict[str, str] = {}
     for path in sorted(DICT_DIR.glob("runs-*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
-            merged.update({k: v for k, v in data.items() if isinstance(v, str) and k})
+            merged.update(
+                {k: safe(v) for k, v in data.items() if isinstance(v, str) and k}
+            )
     return merged
 
 
