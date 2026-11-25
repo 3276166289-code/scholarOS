@@ -33,23 +33,29 @@ Your projects, library, notes, and star map stay in your own Anna storage.
 
 ## Homepage URL
 
-Needs a live page. Suggested: `https://github.com/<you>/scholaros`
-(the repo README doubles as the landing page; no separate site needed yet)
+```
+https://github.com/3276166289-code/scholarOS
+```
 
 ## Support URL
 
-Suggested: `https://github.com/<you>/scholaros/issues`
-or the file `docs/listing/support.md` published as a page.
+```
+https://github.com/3276166289-code/scholarOS/blob/main/docs/listing/support.md
+```
 
 ## Privacy policy URL
 
-`docs/listing/privacy.md` is written and ready. It has to be publicly reachable —
-GitHub blob/Pages URL is enough. Suggested:
-`https://github.com/<you>/scholaros/blob/main/docs/listing/privacy.md`
+```
+https://github.com/3276166289-code/scholarOS/blob/main/docs/listing/privacy.md
+```
 
 ## Cover image URL
 
-`docs/listing/cover-1200x630.png` — 1200×630 PNG, 111 KB.
+```
+https://raw.githubusercontent.com/3276166289-code/scholarOS/main/docs/listing/cover-1200x630.png
+```
+
+Logo file for direct upload: `https://raw.githubusercontent.com/3276166289-code/scholarOS/main/docs/listing/logo-512.png`
 
 ## Screenshots
 
