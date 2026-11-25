@@ -68,7 +68,7 @@ def rewrite(text: str, table: dict[str, str]) -> tuple[str, int]:
         # with a nested template (`...${ cond ? `inner` : ... }...`) ends the
         # match at the inner backtick, so its "body" is a fragment and splicing
         # a translation there breaks the expression. Those get hand-edited.
-        if len(body) > 120 or "`" in value or ("${" in value and "${" not in body):
+        if "`" in value or ("${" in value and "${" not in body):
             continue
         # A template literal sliced at a nested backtick leaves an unbalanced
         # fragment ("...${group.map((r,i)=>"): translating it splices text into
