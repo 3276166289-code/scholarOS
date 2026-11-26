@@ -1,5 +1,6 @@
 {
   "name": "scholaros",
+  "slug": "scholaros",
   "tagline": "A paper workbench: read, extract, cite, and ship manuscripts.",
   "description": "scholarOS turns a pile of PDFs into publishable output. Upload papers, extract text and figures, compose captions, format references in APA 7 / IEEE / Nature, check citation compliance, export to Word, and keep a literature library with a knowledge star map. Every computation runs in a local tool process; writing and rewriting use your Anna model.",
   "category": "productivity"
