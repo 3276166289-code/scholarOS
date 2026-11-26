@@ -1,6 +1,6 @@
 let calY = new Date().getFullYear(), calM = new Date().getMonth();   // calM 0-11
 let calSel = today();                                                // selected day (click a day on the left, it shows on the right)
-let calPrefs = {lunar:true, solarTerms:true, festivals:true};         // The three switches in the calendar dialog
+let calPrefs = {lunar:false, solarTerms:false, festivals:false};   // The three switches in the calendar dialog; off by default — they print in Chinese
 const CAL_TYPES = {mine:{color:"var(--accent)",label:"Schedule"},festival:{color:"#c2415d",label:"Holidays"},solarTerm:{color:"#27845f",label:"Solar terms"}};
 const pad2 = n => String(n).padStart(2,"0");
 const dkey = (y,m,d) => `${y}-${pad2(m+1)}-${pad2(d)}`;

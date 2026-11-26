@@ -59,17 +59,20 @@ Logo file for direct upload: `https://raw.githubusercontent.com/3276166289-code/
 
 ## Screenshots
 
-**Not ready — and no honest substitute.** Every screenshot must show the English
-UI, and the views are still Chinese (P4 not started). Shooting the scaffold
-window would be a lie about the product.
+Four shots, English UI, 1440×900 at 2× (2880×1800 PNG), taken from the dev
+harness against a project created in the app itself:
 
-Shoot list for when P4 group 1 lands (5 shots, 1280×800, English UI):
+| File | Screen | Shows |
+|---|---|---|
+| `shot-workspace.png` | Project workspace, Overview | a project (Cu-doped O3-NaFeMnO2 cathode) with the research question and the flow entry |
+| `shot-toolbox.png` | Paper toolbox | the nine tools, project picker, model row |
+| `shot-notes.png` | Unified library → Research notes | Markdown split editor with a saved note |
+| `shot-calendar.png` | Research calendar | month grid, schedule/holiday/solar-term layers |
 
-1. Paper toolbox — a PDF loaded, the tool list visible
-2. Result pane — compliance report on a real manuscript
-3. References — BibTeX in, APA 7 out
-4. Library — a project with several papers
-5. Star map — the knowledge view with content
+Upload order: workspace, toolbox, notes, calendar.
 
-Until then, omit the field rather than fake it. Anna's listing will fall back to
-the cover image.
+Raw URLs: `https://raw.githubusercontent.com/3276166289-code/scholarOS/main/docs/listing/<file>`
+
+Two screens that would need a first shot each but are honest empty states right
+now: the team office (no teams exist until a project runs something) and the
+paper star map (no literature yet).

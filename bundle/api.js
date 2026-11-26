@@ -104,7 +104,6 @@ const SEEDS = {
   "/api/providers": { providers: [], wires: [], default: null },
   "/api/tools": { tools: [] },
   "/api/conversation-history": { conversations: [] },
-  "/api/todos": { todos: [] },
 };
 
 // Chat vertical: the app's own chat rooms map onto Anna's durable conversations.
@@ -113,10 +112,355 @@ const CHAT_METHODS = {
   "/api/conversation-history": "list",
 };
 
+// ---- notes, folders, to-dos ---------------------------------------------
+// Nothing on the platform stores a project notebook or a to-do list, so these
+// live in app storage: one key per project for the notes and the folder list,
+// one key for to-dos. Everything below is the lazy store the views already
+// speak; no view changes.
+// ponytail: last write wins — expected_hash is accepted and ignored, so two
+// devices editing one note will clobber rather than merge. Add revision checks
+// the day that is real. A project's notes share one key (256 KB limit), which
+// is a few hundred notes; split per folder before that bites.
+const notesKey = (pid) => `/doc/notes/${pid || "personal"}`;
+const foldersKey = (pid) => `/doc/folders/${pid || "personal"}`;
+const TODO_KEY = "/doc/todos";
+const PROJECT_KEY = "/doc/projects";
+
+const unwrapValue = (raw) => (raw && typeof raw === "object" && "value" in raw ? raw.value : raw);
+
+async function readKey(key, fallback) {
+  const stored = unwrapValue(await call("storage", "get", { key }));
+  return stored == null ? structuredClone(fallback) : stored;
+}
+
+const writeKey = (key, value) => call("storage", "set", { key, value });
+
+const uid = () =>
+  crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "") : String(Date.now()) + Math.random().toString(36).slice(2);
+
+// 32-bit FNV-1a: only has to answer "did this change since I loaded it".
+function hash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+const baseName = (p) => String(p || "").split("/").pop();
+const titleOf = (p) => baseName(p).replace(/\.md$/i, "");
+
+// A note's path is its address, so the folder tree is derived from the paths
+// plus whatever empty folders folder/create remembered.
+function treeOf(notes, folders) {
+  const root = { type: "dir", name: "Notes", path: "Notes", children: [] };
+  const rel = (p) => {
+    const parts = String(p).split("/").filter(Boolean);
+    return parts[0] === root.name ? parts.slice(1) : parts;
+  };
+  const dirFor = (parts) => {
+    let node = root;
+    let acc = root.path;
+    for (const seg of parts) {
+      acc = `${acc}/${seg}`;
+      let next = node.children.find((c) => c.type === "dir" && c.path === acc);
+      if (!next) {
+        next = { type: "dir", name: seg, path: acc, children: [] };
+        node.children.push(next);
+      }
+      node = next;
+    }
+    return node;
+  };
+  for (const folder of folders) dirFor(rel(folder));
+  for (const [path, note] of Object.entries(notes)) {
+    const parts = rel(path);
+    dirFor(parts.slice(0, -1)).children.push({
+      type: "file",
+      name: baseName(path),
+      path,
+      title: note.title || titleOf(path),
+      ext: "md",
+      updated_at: note.updated_at,
+    });
+  }
+  return root;
+}
+
+const noteRow = (path, note) => ({
+  path,
+  title: note.title || titleOf(path),
+  body: note.content,
+  content: note.content,
+  content_hash: hash(note.content),
+  read_only: false,
+  category_id: note.category_id ?? null,
+  tags: note.tags || [],
+  note_type: note.note_type || "note",
+  metadata: note.metadata || {},
+});
+
+const DOC = {
+  // The project list is the spine: every other screen hangs off a project id,
+  // and Anna has no project backend, so it lives in storage too.
+  "/api/state": async () => ({
+    ...structuredClone(SEEDS["/api/state"]),
+    tasks: await readKey(PROJECT_KEY, []),
+  }),
+
+  "/api/task/create": async (body) => {
+    const title = String(body.title || "").trim();
+    if (!title) throw new Error("A project needs a name");
+    const projects = await readKey(PROJECT_KEY, []);
+    const project = {
+      id: uid(),
+      title,
+      question: String(body.question || ""),
+      material_system: String(body.material_system || ""),
+      base_dir: String(body.base_dir || ""),
+      status: "active",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    projects.unshift(project);
+    await writeKey(PROJECT_KEY, projects);
+    return { task_id: project.id, project };
+  },
+
+  "/api/task": async (body, q) => {
+    const id = q.get("id") || body.id;
+    const project = (await readKey(PROJECT_KEY, [])).find((p) => p.id === id);
+    if (!project) throw new Error("That project is not here any more");
+    // the workspace reads these collections; nothing runs them yet
+    return { ...project, paper_list: [], materials: [], experts: [], tasks: [], stages: [] };
+  },
+
+  "/api/task/update": async (body) => {
+    const projects = await readKey(PROJECT_KEY, []);
+    const project = projects.find((p) => p.id === body.id);
+    if (!project) throw new Error("That project is not here any more");
+    for (const key of ["title", "question", "material_system", "base_dir"]) {
+      if (body[key] !== undefined) project[key] = String(body[key]);
+    }
+    project.updated_at = new Date().toISOString();
+    await writeKey(PROJECT_KEY, projects);
+    return { task_id: project.id, project };
+  },
+
+  "/api/task/delete": async (body) => {
+    const projects = await readKey(PROJECT_KEY, []);
+    await writeKey(PROJECT_KEY, projects.filter((p) => p.id !== body.id));
+    return { ok: true };
+  },
+
+  "/api/task/delete-preview": async (body, q) => {
+    const id = q.get("id") || body.id;
+    const project = (await readKey(PROJECT_KEY, [])).find((p) => p.id === id);
+    return { title: project?.title || "Project", base_dir: project?.base_dir || "", conversations: 0, running: false };
+  },
+
+  // The task board has no engine behind it (nothing runs agents here), but the
+  // workspace reads it on every open — empty shapes keep the screen clean
+  // instead of talking to tools.getJob with a project id.
+  "/api/project-tasks": async () => ({ tasks: [] }),
+  "/api/project-tasks/executors": async () => ({ bindings: [], teams: [] }),
+  "/api/project-tasks/policy": async () => ({ policy: { autonomy_mode: "supervised" } }),
+  "/api/execution-board": async () => ({ items: [] }),
+  // teams exist only as a project's ad-hoc rooms in the desktop build; here the
+  // office opens empty rather than spinning on "Loading teams..."
+  "/api/teams": async () => ({ teams: [] }),
+
+  "/api/project/notes": async (body, q) => {
+    const pid = q.get("project_id") || body.project_id || "";
+    const notes = await readKey(notesKey(pid), {});
+    const folders = await readKey(foldersKey(pid), []);
+    return {
+      project_id: pid,
+      read_only: false,
+      items: Object.entries(notes).map(([path, note]) => ({
+        path,
+        title: note.title || titleOf(path),
+        category_id: note.category_id ?? null,
+        tags: note.tags || [],
+        note_type: note.note_type || "note",
+        updated_at: note.updated_at,
+      })),
+      tree: treeOf(notes, folders),
+      catalog: { categories: [], content_hash: "" },
+    };
+  },
+
+  "/api/project/note": async (body, q) => {
+    const pid = q.get("project_id") || body.project_id || "";
+    const path = q.get("path") || body.path || "";
+    const notes = await readKey(notesKey(pid), {});
+    return notes[path] ? noteRow(path, notes[path]) : noteRow(path, { content: "", title: titleOf(path) });
+  },
+
+  "/api/project/note/save": async (body) => {
+    const pid = body.project_id || "";
+    const notes = await readKey(notesKey(pid), {});
+    const path = String(body.path || "").trim() || `Notes/${uid()}.md`;
+    const content = String(body.content ?? "");
+    const meta = body.metadata || {};
+    notes[path] = {
+      title: String(body.title || titleOf(path)),
+      content,
+      updated_at: new Date().toISOString(),
+      category_id: meta.category_id ?? null,
+      tags: meta.tags || [],
+      note_type: meta.note_type || "note",
+      metadata: meta,
+    };
+    await writeKey(notesKey(pid), notes);
+    return { path, title: notes[path].title, content, content_hash: hash(content), template_id: null };
+  },
+
+  "/api/project/note/delete": async (body) => {
+    const pid = body.project_id || "";
+    const path = String(body.path || "").replace(/\/+$/, "");
+    const notes = await readKey(notesKey(pid), {});
+    if (notes[path]) {
+      delete notes[path];
+    } else {
+      // a folder: the tree is derived from paths, so drop the subtree
+      const prefix = `${path}/`;
+      for (const key of Object.keys(notes)) if (key.startsWith(prefix)) delete notes[key];
+      const folders = (await readKey(foldersKey(pid), [])).filter((f) => f !== path && !f.startsWith(prefix));
+      await writeKey(foldersKey(pid), folders);
+    }
+    await writeKey(notesKey(pid), notes);
+    return { ok: true };
+  },
+
+  "/api/project/note/rename": async (body) => {
+    const pid = body.project_id || "";
+    const from = String(body.path || "").replace(/\/+$/, "");
+    let name = String(body.new_name || "").trim();
+    if (!name) throw new Error("A new name is required");
+    if (/\.md$/i.test(from) && !/\.md$/i.test(name)) name += ".md";
+    const to = (from.includes("/") ? from.slice(0, from.lastIndexOf("/") + 1) : "") + name;
+    const notes = await readKey(notesKey(pid), {});
+    if (notes[from]) {
+      // the file name and the note title are separate; only the path moves
+      notes[to] = { ...notes[from] };
+      delete notes[from];
+    } else {
+      for (const key of Object.keys(notes)) {
+        if (!key.startsWith(`${from}/`)) continue;
+        notes[to + key.slice(from.length)] = notes[key];
+        delete notes[key];
+      }
+      const folders = await readKey(foldersKey(pid), []);
+      const moved = folders.map((f) => (f === from || f.startsWith(`${from}/`) ? to + f.slice(from.length) : f));
+      await writeKey(foldersKey(pid), moved);
+    }
+    await writeKey(notesKey(pid), notes);
+    return { new_path: to };
+  },
+
+  "/api/project/note/batch": async (body) => {
+    const pid = body.project_id || "";
+    const notes = await readKey(notesKey(pid), {});
+    const add = body.add_tags || [];
+    const remove = body.remove_tags || [];
+    const rename = body.rename_tags || {};
+    let updated = 0;
+    for (const path of body.paths || []) {
+      const note = notes[path];
+      if (!note) continue;
+      const kept = (note.tags || []).filter((t) => !remove.includes(t)).map((t) => rename[t] || t);
+      note.tags = [...new Set([...kept, ...add])];
+      if (body.category_id !== undefined) note.category_id = body.category_id || null;
+      updated++;
+    }
+    await writeKey(notesKey(pid), notes);
+    return { updated };
+  },
+
+  // The category scheme is a filesystem concept in the desktop build. Notes
+  // here carry a category_id, but there is no catalog to edit yet.
+  "/api/project/note-categories": async () => ({ categories: [], content_hash: "" }),
+
+  "/api/project/folder/create": async (body) => {
+    const pid = body.project_id || "";
+    const path = String(body.path || body.relative || "").replace(/^\/+|\/+$/g, "");
+    if (!path) throw new Error("A folder path is required");
+    const folders = await readKey(foldersKey(pid), []);
+    const parts = path.split("/");
+    for (let i = 1; i <= parts.length; i++) {
+      const one = parts.slice(0, i).join("/");
+      if (!folders.includes(one)) folders.push(one);
+    }
+    await writeKey(foldersKey(pid), folders);
+    return { path };
+  },
+
+  "/api/todos": async (body, q) => {
+    const store = await readKey(TODO_KEY, { todos: [] });
+    const task = q.get("task_id");
+    return { todos: task ? store.todos.filter((t) => t.task_id === task) : store.todos };
+  },
+
+  "/api/todos/add": async (body) => {
+    const title = String(body.title || "").trim();
+    if (!title) throw new Error("A to-do needs a title");
+    const store = await readKey(TODO_KEY, { todos: [] });
+    // ponytail: status is TODO/DONE (what the to-do panel reads). The project
+    // panel checks "done" in lower case, so its checkbox stays unticked.
+    const todo = {
+      id: uid(),
+      task_id: body.task_id || "",
+      title,
+      description: body.description || "",
+      priority: String(body.priority || "P2").toUpperCase(),
+      due_date: body.due_date || null,
+      status: "TODO",
+      stage: null,
+      created_at: new Date().toISOString(),
+    };
+    store.todos.unshift(todo);
+    await writeKey(TODO_KEY, store);
+    return { todo };
+  },
+
+  "/api/todos/toggle": async (body) => {
+    const store = await readKey(TODO_KEY, { todos: [] });
+    const todo = store.todos.find((t) => t.id === body.id);
+    if (!todo) throw new Error("That to-do is gone");
+    todo.status = todo.status === "DONE" ? "TODO" : "DONE";
+    await writeKey(TODO_KEY, store);
+    return { todo };
+  },
+
+  "/api/todos/update": async (body) => {
+    const store = await readKey(TODO_KEY, { todos: [] });
+    const todo = store.todos.find((t) => t.id === body.id);
+    if (!todo) throw new Error("That to-do is gone");
+    for (const [key, value] of Object.entries(body)) if (key !== "id") todo[key] = value;
+    await writeKey(TODO_KEY, store);
+    return { todo };
+  },
+
+  "/api/todos/delete": async (body) => {
+    const store = await readKey(TODO_KEY, { todos: [] });
+    store.todos = store.todos.filter((t) => t.id !== body.id);
+    await writeKey(TODO_KEY, store);
+    return { ok: true };
+  },
+
+  // Workflows are not part of this build, so there are no stages to copy in.
+  "/api/todos/import_workflow": async () => ({ added: 0 }),
+};
+
+
 let anna = null;
 
 export async function connect() {
   if (anna) return anna;
+  // the dev harness and tools/test-docs.mjs inject a runtime instead of the SDK
+  if (globalThis.__annaRuntime) return (anna = globalThis.__annaRuntime);
   const { AnnaAppRuntime } = await import("/static/anna-apps/_sdk/latest/index.js");
   anna = await AnnaAppRuntime.connect();
   return anna;
@@ -147,6 +491,8 @@ export async function request(path, { method = "GET", body } = {}) {
   // paper toolbox sees one behaviour no matter how it is called.
   if (cleanPath === "/api/paper-toolbox") return CATALOG;
   if (cleanPath === "/api/paper-toolbox/start") return startToolRun(body);
+  const doc = DOC[cleanPath];
+  if (doc) return doc(body || {}, new URLSearchParams(String(path).split("?")[1] || ""));
   const route = resolve(path);
   if (!route) throw new Error(`scholarOS: no route for ${path} yet`);
 
