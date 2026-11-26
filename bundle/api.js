@@ -128,13 +128,17 @@ const TODO_KEY = "/doc/todos";
 const PROJECT_KEY = "/doc/projects";
 
 const unwrapValue = (raw) => (raw && typeof raw === "object" && "value" in raw ? raw.value : raw);
+// Real APS storage (production) rejects absolute keys — "key must be relative".
+// Every key in this file is written as a path, so strip the leading slashes in
+// one place instead of at all six call sites.
+const skey = (key) => String(key ?? "").replace(/^\/+/, "") || "root";
 
 async function readKey(key, fallback) {
-  const stored = unwrapValue(await call("storage", "get", { key }));
+  const stored = unwrapValue(await call("storage", "get", { key: skey(key) }));
   return stored == null ? structuredClone(fallback) : stored;
 }
 
-const writeKey = (key, value) => call("storage", "set", { key, value });
+const writeKey = (key, value) => call("storage", "set", { key: skey(key), value });
 
 const uid = () =>
   crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "") : String(Date.now()) + Math.random().toString(36).slice(2);
@@ -203,6 +207,15 @@ const noteRow = (path, note) => ({
 });
 
 const DOC = {
+  // chat memory: per-conversation log + the sidebar history panel
+  "/api/chat": (body, params) => chatLog(params?.get("id") || body?.id || ""),
+  "/api/chat/create": async () => {
+    const id = "chat-" + uid();
+    await upsertChat(id, { title: "New chat" });
+    return { chat: { id } };
+  },
+  "/api/conversation-history": (body, params) =>
+    body && body.action ? chatHistoryAction(body) : chatHistory(body, params),
   // The project list is the spine: every other screen hangs off a project id,
   // and Anna has no project backend, so it lives in storage too.
   "/api/state": async () => ({
@@ -504,7 +517,7 @@ export async function request(path, { method = "GET", body } = {}) {
   // ponytail: the fallback has no memory and no model — send is still unmapped.
   if (CHAT_METHODS[cleanPath]) {
     const localKey = "/local-chats";
-    const readLocal = async () => (await call("storage", "get", { key: localKey }))?.value || { conversations: [] };
+    const readLocal = async () => (await call("storage", "get", { key: skey(localKey) }))?.value || { conversations: [] };
     if (CHAT_METHODS[cleanPath] === "create") {
       const title = body?.title || "Chat";
       try {
@@ -517,7 +530,7 @@ export async function request(path, { method = "GET", body } = {}) {
       const store = await readLocal();
       const id = "local-" + (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
       store.conversations.unshift({ id, title, updated_at: new Date().toISOString(), kind: "chat", local: true });
-      await call("storage", "set", { key: localKey, value: store });
+      await call("storage", "set", { key: skey(localKey), value: store });
       return { id, chat: { id, title } };
     }
     try {
@@ -559,11 +572,11 @@ export async function request(path, { method = "GET", body } = {}) {
       // the SDK answers {value} rather than the bare value
       const unwrap = (raw) => (raw && typeof raw === "object" && "value" in raw ? raw.value : raw);
       if (method === "GET") {
-        const stored = unwrap(await call("storage", "get", { key }));
+        const stored = unwrap(await call("storage", "get", { key: skey(key) }));
         if (stored != null) return stored;
         return SEEDS[key] ? structuredClone(SEEDS[key]) : null;
       }
-      return unwrap(await call("storage", "set", { key, value: body }));
+      return unwrap(await call("storage", "set", { key: skey(key), value: body }));
     }
     default:
       throw new Error(`scholarOS: unhandled route kind ${route.kind}`);
@@ -628,9 +641,104 @@ function agentRun(init) {
       return;
     }
     const text = await streamAnswer(req.message || entry?.body?.text || "", send);
+    if (req.task_id && !entry) {
+      // A chat turn, not a toolbox run: keep the log so the conversation
+      // survives a reload. History must never be able to break a reply.
+      try {
+        await appendChatTurn(req.task_id, req.message || "", text);
+      } catch (e) {
+        /* storage failure is not worth losing the answer over */
+      }
+    }
     send({ type: "assistant", content: text });
     send({ type: "done", content: text });
   });
+}
+
+// ---- chat memory -------------------------------------------------------
+// One storage row per conversation. Without this every reload started from an
+// empty log and the history panel had nothing to list.
+const CHATS_KEY = "/doc/chats";
+const chatLogKey = (id) => `/doc/chat/${id}`;
+const nowIso = () => new Date().toISOString();
+const titleFrom = (text) =>
+  (String(text || "").trim().split("\n")[0] || "Chat").slice(0, 60) || "Chat";
+
+async function chatIndex() {
+  const rows = await readKey(CHATS_KEY, null);
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function chatLog(id) {
+  if (!id) return { messages: [] };
+  const log = await readKey(chatLogKey(id), null);
+  return log && Array.isArray(log.messages) ? log : { messages: [] };
+}
+
+async function upsertChat(id, patchBody) {
+  const rows = await chatIndex();
+  const at = rows.findIndex((r) => r.id === id);
+  const row = { id, title: "Chat", created_at: nowIso(), ...(at < 0 ? {} : rows[at]), ...patchBody };
+  row.updated_at = nowIso();
+  if (at < 0) rows.unshift(row);
+  else rows[at] = row;
+  await writeKey(CHATS_KEY, rows);
+  return row;
+}
+
+async function appendChatTurn(id, userText, answerText) {
+  if (!id) return;
+  const log = await chatLog(id);
+  const ts = nowIso();
+  if (userText) log.messages.push({ role: "user", content: String(userText), ts });
+  if (answerText) log.messages.push({ role: "assistant", content: String(answerText), ts });
+  await writeKey(chatLogKey(id), log);
+  const prev = (await chatIndex()).find((r) => r.id === id);
+  const keepTitle = prev?.title && prev.title !== "Chat" && prev.title !== "New chat";
+  await upsertChat(id, { title: keepTitle ? prev.title : titleFrom(userText), count: log.messages.length });
+}
+
+async function chatHistory(body, params) {
+  const kind = params?.get("kind") || body?.kind || "chat";
+  if (kind !== "chat") return { conversations: [] };
+  const needle = String(params?.get("q") || body?.q || "").toLowerCase();
+  return {
+    conversations: (await chatIndex())
+      .filter((row) => !needle || String(row.title || "").toLowerCase().includes(needle))
+      .map((row) => ({
+        id: row.id,
+        title: row.title || "Chat",
+        updated_at: row.updated_at,
+        pinned_at: row.pinned_at || null,
+        running: false,
+        channel: "chat",
+      }))
+      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))),
+  };
+}
+
+async function chatHistoryAction(body) {
+  const id = body?.id;
+  if (!id) throw new Error("scholarOS: a conversation id is required");
+  const action = body.action;
+  if (action === "rename") {
+    await upsertChat(id, { title: String(body.title || "Chat").slice(0, 80) });
+    return { ok: true };
+  }
+  if (action === "trash" || action === "purge") {
+    await writeKey(CHATS_KEY, (await chatIndex()).filter((row) => row.id !== id));
+    await writeKey(chatLogKey(id), { messages: [] });
+    return { ok: true };
+  }
+  if (action === "export") {
+    const log = await chatLog(id);
+    const row = (await chatIndex()).find((r) => r.id === id);
+    const bodyText = log.messages
+      .map((m) => (m.role === "user" ? "**You**" : "**Assistant**") + "\n\n" + m.content)
+      .join("\n\n---\n\n");
+    return { title: row?.title || "Chat", content: `# ${row?.title || "Chat"}\n\n${bodyText}\n` };
+  }
+  return { ok: true };
 }
 
 // ---- offline toolbox runs ------------------------------------------------
