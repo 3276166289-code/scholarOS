@@ -297,7 +297,7 @@ function renderSidebar(){
   const open = navResearchOpen || researchActive;
   $("sidebar").className = "sidebar"+(sidebarCollapsed?" collapsed":"");
   $("sidebar").innerHTML = `
-    <div class="brand"><img class="mark" src="../logo-mark.png" alt="">
+    <div class="brand"><img class="mark" src="mark.png" alt="">
       <div class="lbl" style="min-width:0"><b>scholarOS</b><small>Project research space</small></div>
       <button class="collapse" title="${sidebarCollapsed?"Expand sidebar":"Collapse sidebar"}">${sidebarCollapsed?"›":"‹"}</button></div>
     <button type="button" class="profile-card" id="profileCard" title="Click to edit your profile">

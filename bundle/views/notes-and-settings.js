@@ -248,8 +248,8 @@ async function mdExport(fmt){
   if(fmt==="pdf"){                                   // use browser print → save as PDF
     const w = window.open("", "_blank");
     if(!w) return uiNotify("The browser blocked the print window");
-    w.document.write(`<title>${esc(note.title)}</title><link rel="stylesheet" href="../vendor/katex/katex.min.css">
-<link rel="stylesheet" href="../vendor/starmap.css">`
+    w.document.write(`<title>${esc(note.title)}</title><link rel="stylesheet" href="vendor/katex/katex.min.css">
+<link rel="stylesheet" href="vendor/starmap.css">`
       + `<style>body{font:14px/1.75 "Inter",sans-serif;padding:32px;max-width:860px;margin:auto}`
       + `pre{background:#202124;color:#f4f5f7;padding:12px;border-radius:6px;overflow:auto}`
       + `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:6px 9px}`

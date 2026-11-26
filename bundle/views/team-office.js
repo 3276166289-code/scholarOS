@@ -198,7 +198,7 @@ function officePanel(p, colorOf) {
     const st = m.status || "idle";
     const isSteward = isLead && (m.name === "Assistant" || m.assistant_id === "builtin-steward");
     const av = isSteward
-      ? `<div class="av av-lead" title="Assistant · Auto-coordinate"><img src="../mark.png" alt="scholar"></div>`
+      ? `<div class="av av-lead" title="Assistant · Auto-coordinate"><img src="mark.png" alt="scholar"></div>`
       : `<div class="av" style="${offTint(c)}" title="${offEsc(m.name || "")}">${offEsc(m.avatar || (m.name || "?").slice(0, 1))}</div>`;
     return `<div class="tof-mrow">
       ${av}

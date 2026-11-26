@@ -71,7 +71,7 @@ function asOf(kind){
 function asCur(){ return (S.assistants||[]).find(a=>a.id===asEdit.id) || null; }
 function asChat(){ return (S.chats||[]).find(c=>c.id===curChat) || null; }
 function asBound(){ const c=asChat(); return c ? (c.assistant_id||"") : ""; }
-const Q_AV = "/logo-mark.png";                                        // Assistant main avatar (chibi figure, transparent background)
+const Q_AV = "mark.png";                                         // App mark, same file the sidebar brand uses
 const AH_AV = Array.from({length: 7}, (_, i)=>`/vendor/img/av${i + 1}.png`);   // the assistant's pose in the chat list
 function asAvatarOf(a, size){
   const px = size||42;
