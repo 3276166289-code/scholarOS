@@ -3,7 +3,7 @@ function renderStar(m){
       <div class="sm-bar">
       <b>Knowledge star map</b>
       <button class="btn ghost sm-back" type="button" hidden>Back to all projects</button>
-      <span class="hint">Click a project for its branches → Click a cluster for its entries → click an entry for the analysis,Esc Return level by level</span>
+      <span class="hint">Click a project for its branches → Click a cluster for its entries → click an entry for the analysis · Esc goes back one level</span>
       <button class="btn ghost" id="smZotero" type="button" style="margin-left:auto" title="from this machine Zotero Import papers intoCurrent project">Import papers from Zotero</button>
       <button class="btn ghost" id="smRebuild" type="button" style="margin-left:8px" title="Rescan and rebuild once (normally it reads the last build and never recomputes)">Rebuild the star map</button>
     </div>

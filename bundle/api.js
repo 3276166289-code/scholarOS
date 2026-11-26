@@ -12,16 +12,17 @@
 //   host    -> thin wrapper over an anna.* namespace call
 //   gone    -> feature removed in the Anna build; throws a readable error
 
-export const ROUTES = {
+export const TOOL_ID = "tool-linder0613-paper-core-e5qmwn6s"; // platform-minted executa id
+const ROUTES = {
   // paper toolbox: pure computation -> paper-core tool
-  "/api/paper-toolbox": { kind: "tool", tool: "paper-core", method: "extract_text" },
+  "/api/paper-toolbox": { kind: "tool", tool: TOOL_ID, method: "extract_text" },
   "/api/paper-toolbox/upload": { kind: "host", host: "upload" },
   "/api/paper-toolbox/file": { kind: "host", host: "files" },
-  "/api/paper-toolbox/import": { kind: "tool", tool: "paper-core", method: "extract_text" },
+  "/api/paper-toolbox/import": { kind: "tool", tool: TOOL_ID, method: "extract_text" },
   "/api/paper-toolbox/preview": { kind: "host", host: "files" },
   "/api/paper-toolbox/result": { kind: "host", host: "files" },
   "/api/paper-toolbox/save": { kind: "storage" },
-  "/api/paper-toolbox/start": { kind: "tool", tool: "paper-core", method: "extract_text" },
+  "/api/paper-toolbox/start": { kind: "tool", tool: TOOL_ID, method: "extract_text" },
 
   // features the platform already owns, or that cannot exist here
   "/api/usage": { kind: "gone", why: "Usage is shown in Anna's own dashboard." },
@@ -634,11 +635,34 @@ function agentRun(init) {
 
 // ---- offline toolbox runs ------------------------------------------------
 // "references" and "compliance" are pure text transforms; paper-core does them
-// with the stdlib, so they keep working while model quota is exhausted. Any
-// other tool needs the agent lane and is left to it.
+// with the stdlib, so they keep working while model quota is exhausted. Every
+// other tool is one model call, answered on the same run stream.
 // ponytail: only these two are local; add others when their executa lands.
 const LOCAL_TOOLS = { references: "cite_format", compliance: "compliance" };
 const RUNS = new Map();
+
+// Instruction per model-backed tool. A prompt the panel edited wins over these.
+const TOOL_PROMPTS = {
+  translate: (body) =>
+    `Translate the text below into ${body.direction === "en_zh" ? "Chinese" : "English"}. ` +
+    "Keep formulas, citations, numbers and heading levels exactly as they are. Return only the translation.",
+  polish: () =>
+    "Rewrite the text below for clarity and flow without changing its technical content, numbers or citations. " +
+    "Return only the rewritten text.",
+  caption: (body) =>
+    `Write one concise journal-style figure caption in ${body.lang === "zh" ? "Chinese" : "English"} from the notes below. ` +
+    "Name what the figure shows and what the reader should take from it. Return only the caption.",
+  mermaid: () =>
+    "Turn the description below into a Mermaid diagram. Return only one fenced mermaid code block.",
+};
+
+// Tools whose real work is a pipeline this build does not carry. Saying so is
+// better than a model answer that pretends to have converted something.
+const TOOL_ABSENT = {
+  convert: "Document conversion needs the Word/Markdown pipeline, which this build does not carry. Use the desktop app.",
+  image_convert: "Image conversion needs the desktop image pipeline, which this build does not carry.",
+  pdf_translate: "PDF translation needs the full-text pipeline, which this build does not carry yet.",
+};
 
 async function startToolRun(body) {
   const runId = "run-" + Math.random().toString(36).slice(2, 10);
@@ -654,7 +678,7 @@ async function runLocalTool(entry, send) {
     entry.tool === "references"
       ? { text: entry.body.text || "", style: entry.body.cite_style || "apa" }
       : { text: entry.body.text || "" };
-  const out = await call("tools", "invoke", { tool_id: "paper-core", method, args });
+  const out = await call("tools", "invoke", { tool_id: TOOL_ID, method, args });
   const data = toolData(out, `paper-core.${method}`);
   const content = typeof data === "string" ? data : data?.text ?? JSON.stringify(data);
   send({ type: "toolbox_result", content });
@@ -701,6 +725,30 @@ async function localSse(key, entry) {
   return [sse({ type: "run_started", run_id: key }), ...events.map(sse)].join("");
 }
 
+// One model call per run, reported in the toolbox's own event shape: the panel
+// only understands toolbox_result + done, so deltas are swallowed here.
+async function modelSse(key, entry) {
+  const body = entry.body || {};
+  const events = [];
+  try {
+    if (TOOL_ABSENT[entry.tool]) throw new Error(TOOL_ABSENT[entry.tool]);
+    const build = TOOL_PROMPTS[entry.tool];
+    if (!build) throw new Error(`The ${entry.tool} tool is not available in this build.`);
+    const text = String(body.text || "").trim();
+    if (!text) throw new Error("Paste the text to process first.");
+    const terms = String(body.terminology || "").trim();
+    const message = [String(body.prompt || "").trim() || build(body), terms && `Terminology to keep:\n${terms}`, "---", text]
+      .filter(Boolean)
+      .join("\n\n");
+    const out = await streamAnswer(message, () => {});
+    events.push({ type: "toolbox_result", content: out });
+    events.push({ type: "done", content: out });
+  } catch (e) {
+    events.push({ type: "error", message: e.message });
+  }
+  return [sse({ type: "run_started", run_id: key }), ...events.map(sse)].join("");
+}
+
 export function patchFetch() {
   if (typeof window === "undefined" || window.__scholarFetchPatched) return;
   window.__scholarFetchPatched = true;
@@ -716,8 +764,12 @@ export function patchFetch() {
       if (streamMatch) {
         const key = decodeURIComponent(streamMatch[1]);
         const entry = RUNS.get(key);
-        if (entry && LOCAL_TOOLS[entry.tool]) {
-          if (!RUN_CACHE.has(key)) RUN_CACHE.set(key, await localSse(key, entry));
+        if (entry) {
+          // both lanes answer here, and the answer is replayed to every caller:
+          // the panel calls follow() twice and must not lose the log.
+          if (!RUN_CACHE.has(key)) {
+            RUN_CACHE.set(key, LOCAL_TOOLS[entry.tool] ? await localSse(key, entry) : await modelSse(key, entry));
+          }
           return new Response(RUN_CACHE.get(key), { status: 200, headers: { "Content-Type": "text/event-stream" } });
         }
         // unknown id (e.g. a run restored after reload): end the stream cleanly

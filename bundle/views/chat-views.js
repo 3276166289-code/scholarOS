@@ -603,7 +603,7 @@ function renderAgent(m){
         </div>
         <div class="atts" id="atts"></div>
         <div class="composer" id="composer">
-          <textarea id="ask" rows="1" placeholder="Send a message to${esc(boundA?boundA.name:"Assistant")}... (Enter to send,Shift+Enter newline)"></textarea>
+          <textarea id="ask" rows="1" placeholder="Send a message to ${esc(boundA?boundA.name:"Assistant")}... (Enter to send, Shift+Enter for a newline)"></textarea>
           ${AgentRuntime.markup('at',cur||{},'modpick')}
           <div class="at-tools">
             <div class="at-tools-l">
@@ -712,7 +712,7 @@ function renderAgent(m){
         txt.textContent = outName(r.chat.out_dir);
         await refreshState(false); paintStats(); render();
       }
-    }catch(e){ txt.textContent = old; uiNotify("SelectFolderFailed: "+e.message); }
+    }catch(e){ txt.textContent = old; uiNotify("Folder selection failed: "+e.message); }
     btn.disabled=false;
   };
   for(const [id,key] of [['modpick','model_id'],['atReasoning','reasoning'],['atPermission','permission']])$(id).onchange=async event=>{

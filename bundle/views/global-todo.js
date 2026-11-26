@@ -63,7 +63,7 @@ const GlobalTodos = (() => {
       <button type="button" class="context-trigger" data-todo-action="edit" title="Edit to-do" aria-label="Edit to-do">✎</button>
       ${t.task_id?'<button type="button" class="context-trigger" data-todo-action="project" title="View project progress" aria-label="View project progress">↗</button>':''}
       <button type="button" class="context-trigger" data-todo-action="delete" title="Delete to-do" aria-label="Delete to-do">×</button>
-    </div>`).join('') || `<div class="todo-list-empty">${loaded?(query?'No matching to-dos':done?'No finished to-dos yet':'No to-dos yet; add one above whenever you like.'):'LoadingTo-dos...'}</div>`;
+    </div>`).join('') || `<div class="todo-list-empty">${loaded?(query?'No matching to-dos':done?'No finished to-dos yet':'No to-dos yet; add one above whenever you like.'):'Loading to-dos...'}</div>`;
     if(focused){
       const row = [...$('todoList').children].find(el=>el.dataset.globalTodoId===focused.id);
       (row?.querySelector(`[data-todo-action="${focused.action}"]`) || $('todoListSearch')).focus();

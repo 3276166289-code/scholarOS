@@ -1,0 +1,9 @@
+{
+  "slug": "paper-core",
+  "name": "paper-core",
+  "version": "0.1.0",
+  "executa_type": "tool",
+  "description": "Offline paper computation for scholarOS: citations, reference audit, compliance checks, PDF/text extraction, captions and DOCX export.",
+  "tool_id": "paper-core",
+  "type": "python"
+}

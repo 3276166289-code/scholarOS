@@ -508,7 +508,7 @@ window.Notebook = (() => {
     let base = parentPath || mdDashSelectedFolder || "Notes";
     if(!base.startsWith("Notes")) base = "Notes";
     const d = dialog("New folder", `<form class="nb-form">
-      <label>FolderName<input class="control" name="folderName" required placeholder="e.g. experiment data log"></label>
+      <label>Folder name<input class="control" name="folderName" required placeholder="e.g. experiment data log"></label>
       <label>Parent folder<input class="control" name="parentPath" value="${esc(base)}" readonly style="opacity:0.75"></label>
       <button type="submit" class="btn">CreateFolder</button>
     </form>`);
@@ -549,7 +549,7 @@ window.Notebook = (() => {
     if(type === 'dir'){
       menu.innerHTML = `
         <button type="button" class="nb-menu-item" data-act="new-note">+ HereNew note</button>
-        <button type="button" class="nb-menu-item" data-act="new-sub">📁+ NewSubfolder</button>
+        <button type="button" class="nb-menu-item" data-act="new-sub">📁+ New subfolder</button>
         <button type="button" class="nb-menu-item del" data-act="del-dir">🗑 Delete thisFolder</button>
       `;
     } else {

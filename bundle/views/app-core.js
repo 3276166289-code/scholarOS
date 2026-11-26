@@ -370,7 +370,7 @@ function renderTopbar(){
   $("topbar").innerHTML = `
     <button type="button" class="topbar-icon-btn" id="btnTopToggleSidebar" title="Collapse/Expand the main navigation (Ctrl+B)">☰</button>
     <span class="date">${clock()}</span>
-    <span class="pill" title="Current model">${S.active?("Model "+esc(S.active.name)):"Not configuredModel"}</span>
+    <span class="pill" title="Current model">${S.active?("Model "+esc(S.active.name)):"No model configured"}</span>
     <div class="topbar-actions">
       <button type="button" class="btn ghost" id="usageStats">Usage</button><button type="button" class="btn ghost" id="paperToolbox" title="translation both ways, polishing, citations, and format conversion">Paper toolbox</button>
       <button type="button" class="btn ghost btn-sm btn-zen" id="btnZenMode" title="Full-screen focus workspace (F10)">⛶ Focus</button>

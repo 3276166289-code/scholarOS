@@ -620,7 +620,16 @@ def main() -> None:
         try:
             request = json.loads(line)
             method = request.get("method")
-            if method == "describe":
+            if method == "initialize":
+                result = {
+                    "protocolVersion": "2.0",
+                    "server_info": {
+                        "name": MANIFEST.get("display_name", "paper-core"),
+                        "version": MANIFEST.get("version", "0.1.0"),
+                    },
+                    "capabilities": {},
+                }
+            elif method == "describe":
                 result = MANIFEST
             elif method == "health":
                 result = {"status": "ready"}
