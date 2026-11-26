@@ -638,7 +638,7 @@ function agentRun(init) {
 // with the stdlib, so they keep working while model quota is exhausted. Every
 // other tool is one model call, answered on the same run stream.
 // ponytail: only these two are local; add others when their executa lands.
-const LOCAL_TOOLS = { references: "cite_format", compliance: "compliance" };
+const LOCAL_TOOLS = { references: "cite_format", compliance: "compliance", convert: "docx_b64" };
 const RUNS = new Map();
 
 // Instruction per model-backed tool. A prompt the panel edited wins over these.
@@ -659,7 +659,6 @@ const TOOL_PROMPTS = {
 // Tools whose real work is a pipeline this build does not carry. Saying so is
 // better than a model answer that pretends to have converted something.
 const TOOL_ABSENT = {
-  convert: "Document conversion needs the Word/Markdown pipeline, which this build does not carry. Use the desktop app.",
   image_convert: "Image conversion needs the desktop image pipeline, which this build does not carry.",
   pdf_translate: "PDF translation needs the full-text pipeline, which this build does not carry yet.",
 };
@@ -677,9 +676,24 @@ async function runLocalTool(entry, send) {
   const args =
     entry.tool === "references"
       ? { text: entry.body.text || "", style: entry.body.cite_style || "apa" }
-      : { text: entry.body.text || "" };
+      : entry.tool === "convert"
+        ? { text: entry.body.text || "", filename: entry.body.filename || "manuscript.docx" }
+        : { text: entry.body.text || "" };
   const out = await call("tools", "invoke", { tool_id: TOOL_ID, method, args });
   const data = toolData(out, `paper-core.${method}`);
+  if (entry.tool === "convert") {
+    // There is no shared filesystem with the executa: hand the bytes to the
+    // panel, which saves them through a Blob download.
+    const raw = typeof data === "string" ? data : data?.text ?? JSON.stringify(data);
+    const parsed = JSON.parse(raw);
+    send({
+      type: "toolbox_result",
+      content: `Converted ${parsed.paragraphs || 0} paragraph(s) — the .docx is downloading.`,
+      files: [{ name: parsed.filename || "manuscript.docx", mime: parsed.mime, b64: parsed.b64 }],
+    });
+    send({ type: "done", content: "done" });
+    return;
+  }
   const content = typeof data === "string" ? data : data?.text ?? JSON.stringify(data);
   send({ type: "toolbox_result", content });
   send({ type: "done", content });

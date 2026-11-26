@@ -3,7 +3,7 @@
   "name": "paper-core",
   "version": "0.1.0",
   "executa_type": "tool",
-  "description": "Offline paper computation for scholarOS: citations, reference audit, compliance checks, PDF/text extraction, captions and DOCX export.",
+  "description": "Offline paper computation for scholarOS: citations, reference audit, compliance checks, text/PDF extraction, captions, and Markdown-to-DOCX export returned as base64 bytes.",
   "tool_id": "paper-core",
   "type": "python"
 }

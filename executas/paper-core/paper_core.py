@@ -90,6 +90,19 @@ MANIFEST = {
             },
         },
         {
+            "name": "docx_b64",
+            "description": "Build a .docx from Markdown/plain text and return it as base64 bytes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "filename": {"type": "string", "default": "manuscript.docx"},
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        },
+        {
             "name": "render_page",
             "description": "Render one PDF page to PNG and return the image path and pixel size.",
             "parameters": {
@@ -506,7 +519,7 @@ def bib_parse(text: str) -> str:
     return json.dumps({"count": len(records), "records": records}, ensure_ascii=False)
 
 
-def convert_docx(text: str, out_dir: str = "", filename: str = "manuscript.docx") -> str:
+def _docx_document(text: str):
     from docx import Document
 
     document = Document()
@@ -518,9 +531,32 @@ def convert_docx(text: str, out_dir: str = "", filename: str = "manuscript.docx"
             document.add_heading(block.lstrip("#").strip(), level=1)
         else:
             document.add_paragraph(block)
+    return document
+
+
+def convert_docx(text: str, out_dir: str = "", filename: str = "manuscript.docx") -> str:
+    document = _docx_document(text)
     path = os.path.join(_out_dir(out_dir), filename)
     document.save(path)
     return json.dumps({"path": path, "paragraphs": len(document.paragraphs)})
+
+
+def docx_b64(text: str, filename: str = "manuscript.docx") -> str:
+    """DOCX as base64 — the app ships as a browser bundle, so a written path is unreachable."""
+    import base64
+    import io
+
+    document = _docx_document(text)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return json.dumps(
+        {
+            "filename": filename,
+            "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "b64": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "paragraphs": len(document.paragraphs),
+        }
+    )
 
 
 def render_page(path: str, page: int = 1, dpi: int = 150, out_dir: str = "") -> str:
@@ -591,6 +627,7 @@ TOOLS = {
     "parse_pdf": lambda a: json.dumps(parse_pdf(a["path"], a.get("max_pages", 30), a.get("max_chars", 200000))),
     "bib_parse": lambda a: bib_parse(a["text"]),
     "convert_docx": lambda a: convert_docx(a["text"], a.get("out_dir", ""), a.get("filename", "manuscript.docx")),
+    "docx_b64": lambda a: docx_b64(a["text"], a.get("filename", "manuscript.docx")),
     "render_page": lambda a: render_page(a["path"], a.get("page", 1), a.get("dpi", 150), a.get("out_dir", "")),
     "caption_compose": lambda a: caption_compose(a["number"], a["content"], a.get("kind", "figure"), a.get("note", "")),
     "image_convert": lambda a: image_convert(a["path"], a.get("target_format", "png"), a.get("out_dir", ""), a.get("max_side", 0)),
@@ -744,6 +781,9 @@ def _self_test() -> None:
     else:
         made = json.loads(convert_docx("# Head\n\nBody text.", out_dir=_out_dir("")))
         assert made["paragraphs"] >= 1 and os.path.getsize(made["path"]) > 0, made
+        # docx_b64 is the only lane the browser bundle can receive a document through
+        packed = json.loads(docx_b64("# Head\n\nBody text."))
+        assert packed["mime"].startswith("application/vnd") and len(packed["b64"]) > 600, packed.keys()
 
     print("paper-core self-test OK (cite/audit/compliance/extract/bib/caption/docx)")
 

@@ -344,12 +344,13 @@ const PaperToolbox=(()=>{
     updateTool();if(state.run)follow();if(state.tool==='mermaid')diagramView?.focus();else el('text').focus({preventScroll:true});
   }
   async function pollPdf(id,project){if(!panel?.isConnected)return;try{const result=await api('/api/trans/status?id='+encodeURIComponent(id)+'&task='+project);if(el('status'))el('status').textContent=result.msg||result.state;if(result.state==='running')setTimeout(()=>pollPdf(id,project),2000);else if(result.state==='done'){state.result=result.msg||'Translation PDF Generated, PleaseProject literaturein';paint();}}catch(err){error(err.message);}}
+  function saveFile(file){try{const bin=atob(file.b64),buf=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);const url=URL.createObjectURL(new Blob([buf],{type:file.mime||'application/octet-stream'})),a=document.createElement('a');a.href=url;a.download=file.name||'download';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);}catch(err){uiNotify('Could not save the file: '+err.message);}}
   async function follow(){
     if(following||!state.run)return;following=true;const run=state.run;
     try{await observeAgentRun(run,event=>{
       if(event.type==='tool_result'&&el('status'))el('status').textContent=event.summary;
       if(event.type==='toolbox_file'&&event.file){const rest=(state.files||[]).filter(file=>file.asset_id!==event.file.asset_id);state.files=[...rest,event.file];state.fresh_asset=event.file.asset_id;}
-      if(event.type==='toolbox_result'){state.result=event.content||'';state.path=event.path||'';state.files=(event.files&&event.files.length)?event.files:(event.path?[{asset_id:event.asset_id||'',name:event.name||String(event.path).split(/[\\/]/).pop(),path:event.path,project_id:state.project_id}]:[]);state.errors=event.errors||[];state.document_result=event.engine==='pandoc';
+      if(event.type==='toolbox_result'){state.result=event.content||'';state.path=event.path||'';state.files=(event.files&&event.files.length)?event.files:(event.path?[{asset_id:event.asset_id||'',name:event.name||String(event.path).split(/[\\/]/).pop(),path:event.path,project_id:state.project_id}]:[]);state.errors=event.errors||[];state.document_result=event.engine==='pandoc';for(const file of (event.files||[]))if(file&&file.b64)saveFile(file);
         if(Array.isArray(event.items)&&event.items.length){const map=new Map(captionItems().map(item=>[cbKey(item),item]));for(const item of event.items)map.set(cbKey(item),item);state.caption_items=[...map.values()];}}
       if(event.type==='done'){state.result=event.content||state.result;state.result_run_id=run.runId;}
       if(event.type==='error')error(event.message||'Processing failed');
