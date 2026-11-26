@@ -354,7 +354,7 @@ const PaperToolbox=(()=>{
       if(event.type==='done'){state.result=event.content||state.result;state.result_run_id=run.runId;}
       if(event.type==='error')error(event.message||'Processing failed');
       persist();paint();
-    },()=>persist(),()=>{if(el('status'))el('status').textContent='Connection lost, restoring the run log';});
+    },()=>persist(),(e)=>{window.__tbErr=String(e&&(e.stack||e.message)||e);if(el('status'))el('status').textContent='Connection lost, restoring the run log';});
     }catch(err){error(err.message);}finally{if(state.run===run)state.run=null;following=false;persist();paint();}
   }
   async function openResult(runId,project){

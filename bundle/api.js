@@ -143,6 +143,10 @@ async function call(ns, method, args) {
 
 export async function request(path, { method = "GET", body } = {}) {
   const cleanPath = String(path).split("?")[0];
+  // Both lanes (api() and the raw fetch patch) answer these two here, so the
+  // paper toolbox sees one behaviour no matter how it is called.
+  if (cleanPath === "/api/paper-toolbox") return CATALOG;
+  if (cleanPath === "/api/paper-toolbox/start") return startToolRun(body);
   const route = resolve(path);
   if (!route) throw new Error(`scholarOS: no route for ${path} yet`);
 
@@ -197,8 +201,7 @@ export async function request(path, { method = "GET", body } = {}) {
         method: route.method,
         args: { path: route.path || path, ...(body || {}) },
       });
-      if (!out?.success) throw new Error(out?.error || `${route.tool}.${route.method} failed`);
-      return out.data;
+      return toolData(out, `${route.tool}.${route.method}`);
     }
     case "job":
       return call("tools", "getJob", { jobId: body?.job_id || body?.id });
@@ -250,19 +253,14 @@ async function streamAnswer(message, send) {
   return text;
 }
 
-function agentRun(init) {
-  let req = {};
-  try { req = JSON.parse(init.body || "{}"); } catch (e) { /* keep {} */ }
-  const runId = "run-" + Date.now().toString(36);
+function sseStream(runId, work) {
   const enc = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       const send = (obj) => controller.enqueue(enc.encode(sse(obj)));
       send({ type: "run_started", run_id: runId });
       try {
-        const text = await streamAnswer(req.message || "", send);
-        send({ type: "assistant", content: text });
-        send({ type: "done" });
+        await work(send);
       } catch (e) {
         send({ type: "error", message: e.message });
       }
@@ -270,6 +268,91 @@ function agentRun(init) {
     },
   });
   return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
+function agentRun(init) {
+  let req = {};
+  try { req = JSON.parse(init.body || "{}"); } catch (e) { /* keep {} */ }
+  const entry = RUNS.get(req.task_id);
+  return sseStream("run-" + Date.now().toString(36), async (send) => {
+    if (entry && LOCAL_TOOLS[entry.tool]) {
+      RUNS.delete(req.task_id);
+      await runLocalTool(entry, send);
+      return;
+    }
+    const text = await streamAnswer(req.message || entry?.body?.text || "", send);
+    send({ type: "assistant", content: text });
+    send({ type: "done", content: text });
+  });
+}
+
+// ---- offline toolbox runs ------------------------------------------------
+// "references" and "compliance" are pure text transforms; paper-core does them
+// with the stdlib, so they keep working while model quota is exhausted. Any
+// other tool needs the agent lane and is left to it.
+// ponytail: only these two are local; add others when their executa lands.
+const LOCAL_TOOLS = { references: "cite_format", compliance: "compliance" };
+const RUNS = new Map();
+
+async function startToolRun(body) {
+  const runId = "run-" + Math.random().toString(36).slice(2, 10);
+  const entry = { tool: body?.tool, body: body || {} };
+  RUNS.set(runId, entry);
+  RUNS.set("chat-" + runId, entry);
+  return { run_id: runId, chat_id: "chat-" + runId, request_key: body?.request_key || runId };
+}
+
+async function runLocalTool(entry, send) {
+  const method = LOCAL_TOOLS[entry.tool];
+  const args =
+    entry.tool === "references"
+      ? { text: entry.body.text || "", style: entry.body.cite_style || "apa" }
+      : { text: entry.body.text || "" };
+  const out = await call("tools", "invoke", { tool_id: "paper-core", method, args });
+  const data = toolData(out, `paper-core.${method}`);
+  const content = typeof data === "string" ? data : data?.text ?? JSON.stringify(data);
+  send({ type: "toolbox_result", content });
+  send({ type: "done", content });
+}
+
+// The paper toolbox reads its menu from here. Presets live in the product
+// backend; without them the panel still runs the built-in tools.
+const CATALOG = {
+  tools: [
+    { id: "translate", name: "Translate" },
+    { id: "polish", name: "Polish" },
+    { id: "references", name: "References" },
+    { id: "compliance", name: "Compliance check" },
+    { id: "caption", name: "Captions" },
+    { id: "convert", name: "Convert document" },
+    { id: "image_convert", name: "Convert images" },
+    { id: "pdf_translate", name: "Translate PDF" },
+    { id: "mermaid", name: "Diagram" },
+  ],
+  prompt_presets: [],
+  document_conversion: { available: false, inputs: [] },
+};
+
+// Executa results arrive as the payload itself; a failure is an `error` field.
+function toolData(out, label) {
+  if (out && typeof out === "object" && out.error) throw new Error(out.error);
+  if (out?.success === false) throw new Error(`${label} failed`);
+  return out?.data ?? out;
+}
+
+// A local tool answers in milliseconds, so the events are built up front and
+// replayed to every subscriber — the panel can call follow() twice and both
+// readers still get the full log.
+const RUN_CACHE = new Map();
+
+async function localSse(key, entry) {
+  const events = [];
+  try {
+    await runLocalTool(entry, (o) => events.push(o));
+  } catch (e) {
+    events.push({ type: "error", message: e.message });
+  }
+  return [sse({ type: "run_started", run_id: key }), ...events.map(sse)].join("");
 }
 
 export function patchFetch() {
@@ -282,10 +365,22 @@ export function patchFetch() {
     const clean = String(url).split("?")[0];
     try {
       if (clean === "/api/agent") return agentRun(init);
-      // run polling: this bridge answers in one shot, so nothing is pending
-      if (clean.startsWith("/api/runs/")) {
-        return clean.endsWith("/stream") ? new Response("", { status: 204 }) : jsonResponse({ status: "done" });
+      // run polling: a local toolbox run answers its own stream in one shot
+      const streamMatch = clean.match(/^\/api\/runs\/([^/]+)\/stream$/);
+      if (streamMatch) {
+        const key = decodeURIComponent(streamMatch[1]);
+        const entry = RUNS.get(key);
+        if (entry && LOCAL_TOOLS[entry.tool]) {
+          if (!RUN_CACHE.has(key)) RUN_CACHE.set(key, await localSse(key, entry));
+          return new Response(RUN_CACHE.get(key), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+        }
+        // unknown id (e.g. a run restored after reload): end the stream cleanly
+        return new Response(sse({ type: "error", message: "This run is no longer available; start it again." }), {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
       }
+      if (clean.startsWith("/api/runs/")) return jsonResponse({ status: "done" });
       let body;
       if (init.body) { try { body = JSON.parse(init.body); } catch (e) { body = init.body; } }
       return jsonResponse(await request(url, { method: init.method || "GET", body }));
