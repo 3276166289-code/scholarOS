@@ -1,0 +1,8 @@
+paper_core.py
+pyproject.toml
+paper_core.egg-info/PKG-INFO
+paper_core.egg-info/SOURCES.txt
+paper_core.egg-info/dependency_links.txt
+paper_core.egg-info/entry_points.txt
+paper_core.egg-info/requires.txt
+paper_core.egg-info/top_level.txt

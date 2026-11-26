@@ -191,7 +191,9 @@ async function api(path, opts){
     let body;
     if(init.body && typeof init.body === 'string'){ try{ body = JSON.parse(init.body); }catch(e){ body = init.body; } }
     else if(init.body) body = init.body;
-    return await shim(path, {method: init.method || 'GET', body});
+    const out = await shim(path, {method: init.method || 'GET', body});
+    if(out === null || out === undefined) (window.__apiMiss = window.__apiMiss || []).push(String(path) + ' (empty)');
+    return out;
   }
   const r = await fetch(path, init);
   const j = await r.json().catch(()=>({error:"Response is not JSON"}));

@@ -29,6 +29,7 @@ export const ROUTES = {
   "/api/capabilities/bindings": { kind: "gone", why: "Executas are installed from the Anna Executa Hub." },
   "/api/capabilities/skill": { kind: "gone", why: "Executas are installed from the Anna Executa Hub." },
   "/api/feishu": { kind: "gone", why: "Feishu inbound needs a long-lived socket; only outbound webhooks survive." },
+  "/api/conv/open": { kind: "gone", why: "Opening a local file needs the desktop build." },
 };
 
 // Domain defaults. Longest prefix wins, so order matters only for overlaps.
@@ -93,10 +94,23 @@ const PREFIX_KINDS = [
 // ponytail: only the bootstrap reads are seeded; every other endpoint still
 // needs its own mapping before its screen works.
 const SEEDS = {
-  "/api/state": { tasks: [], chats: [], assistants: [], models: [], active: null, events: [], stages: [] },
+  "/api/state": {
+    tasks: [], chats: [], assistants: [],
+    // the platform supplies the model; one row is enough to mean "a model exists"
+    models: [{ id: "anna", name: "Anna model", api: "anna", api_key: "platform" }],
+    active: { id: "anna", name: "Anna model", api: "anna", api_key: "platform" },
+    events: [], stages: [],
+  },
   "/api/providers": { providers: [], wires: [], default: null },
   "/api/tools": { tools: [] },
   "/api/conversation-history": { conversations: [] },
+  "/api/todos": { todos: [] },
+};
+
+// Chat vertical: the app's own chat rooms map onto Anna's durable conversations.
+const CHAT_METHODS = {
+  "/api/chat/create": "create",
+  "/api/conversation-history": "list",
 };
 
 let anna = null;
@@ -128,8 +142,51 @@ async function call(ns, method, args) {
 }
 
 export async function request(path, { method = "GET", body } = {}) {
+  const cleanPath = String(path).split("?")[0];
   const route = resolve(path);
   if (!route) throw new Error(`scholarOS: no route for ${path} yet`);
+
+  // Durable conversations: create a room / list the rooms. The SDK answers its
+  // own shapes, so normalise to what the views already read. Hosts without the
+  // conversation RPC (the dev harness, older runtimes) fall back to a local
+  // list in storage so the chat UI still works.
+  // ponytail: the fallback has no memory and no model — send is still unmapped.
+  if (CHAT_METHODS[cleanPath]) {
+    const localKey = "/local-chats";
+    const readLocal = async () => (await call("storage", "get", { key: localKey }))?.value || { conversations: [] };
+    if (CHAT_METHODS[cleanPath] === "create") {
+      const title = body?.title || "Chat";
+      try {
+        const made = await call("conversation", "create", { name: title });
+        const uuid = made?.conversation_uuid || made?.uuid || made?.id;
+        if (uuid) return { id: uuid, chat: { id: uuid, title } };
+      } catch (e) {
+        /* fall through to the local list */
+      }
+      const store = await readLocal();
+      const id = "local-" + (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+      store.conversations.unshift({ id, title, updated_at: new Date().toISOString(), kind: "chat", local: true });
+      await call("storage", "set", { key: localKey, value: store });
+      return { id, chat: { id, title } };
+    }
+    try {
+      const listed = await call("conversation", "list", { limit: 50 });
+      const rows = listed?.conversations || listed?.items || (Array.isArray(listed) ? listed : []);
+      if (rows.length) {
+        return {
+          conversations: rows.map((c) => ({
+            id: c.conversation_uuid || c.uuid || c.id,
+            title: c.name || c.title || "Chat",
+            updated_at: c.updated_at || c.created_at || null,
+            kind: c.kind || "chat",
+          })),
+        };
+      }
+    } catch (e) {
+      /* fall through */
+    }
+    return await readLocal();
+  }
 
   if (route.kind === "gone") throw new Error(route.why);
 
@@ -164,3 +221,67 @@ export async function request(path, { method = "GET", body } = {}) {
 }
 
 export const api = request;
+
+// ---- fetch bridge -------------------------------------------------------
+// The chat client streams with raw fetch + SSE (it never goes through api()),
+// so the shim has to sit on window.fetch as well. Everything else /api/* is
+// answered from request() so both lanes agree.
+
+const sse = (obj) => `data: ${JSON.stringify(obj)}\n\n`;
+const jsonResponse = (data, status = 200) =>
+  new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+
+async function completeText(message) {
+  const out = await call("llm", "complete", { messages: [{ role: "user", content: message }] });
+  const text = out?.content ?? out?.text ?? out?.message ?? "";
+  if (!text) throw new Error(out?.error || "The model returned nothing");
+  return String(text);
+}
+
+function agentRun(init) {
+  let req = {};
+  try { req = JSON.parse(init.body || "{}"); } catch (e) { /* keep {} */ }
+  const runId = "run-" + Date.now().toString(36);
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj) => controller.enqueue(enc.encode(sse(obj)));
+      send({ type: "run_started", run_id: runId });
+      try {
+        const text = await completeText(req.message || "");
+        for (const chunk of text.match(/[\s\S]{1,40}/g) || []) send({ type: "assistant_delta", text: chunk });
+        send({ type: "assistant", content: text });
+        send({ type: "done" });
+      } catch (e) {
+        send({ type: "error", message: e.message });
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+}
+
+export function patchFetch() {
+  if (typeof window === "undefined" || window.__scholarFetchPatched) return;
+  window.__scholarFetchPatched = true;
+  const real = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (!String(url).startsWith("/api/")) return real(input, init);
+    const clean = String(url).split("?")[0];
+    try {
+      if (clean === "/api/agent") return agentRun(init);
+      // run polling: this bridge answers in one shot, so nothing is pending
+      if (clean.startsWith("/api/runs/")) {
+        return clean.endsWith("/stream") ? new Response("", { status: 204 }) : jsonResponse({ status: "done" });
+      }
+      let body;
+      if (init.body) { try { body = JSON.parse(init.body); } catch (e) { body = init.body; } }
+      return jsonResponse(await request(url, { method: init.method || "GET", body }));
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 400);
+    }
+  };
+}
+
+patchFetch();

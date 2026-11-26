@@ -22,6 +22,7 @@
       }
     ],
     "csp_overrides": {},
+    "host_api": { "conversation": true },
     "browser_permissions": ["fullscreen", "clipboard-read"],
     "state_merge": "last_writer_wins"
   },

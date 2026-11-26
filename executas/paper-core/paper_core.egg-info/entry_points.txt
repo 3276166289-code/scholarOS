@@ -1,0 +1,2 @@
+[console_scripts]
+paper-core = paper_core:main
