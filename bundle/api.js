@@ -231,11 +231,23 @@ const sse = (obj) => `data: ${JSON.stringify(obj)}\n\n`;
 const jsonResponse = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 
-async function completeText(message) {
-  const out = await call("llm", "complete", { messages: [{ role: "user", content: message }] });
-  const text = out?.content ?? out?.text ?? out?.message ?? "";
-  if (!text) throw new Error(out?.error || "The model returned nothing");
-  return String(text);
+// llm.complete is rejected by this host (the sync channel answers 502 when the
+// account has no quota), while llm.stream reports the same condition as a
+// readable frame. Stream, and forward deltas as they arrive.
+async function streamAnswer(message, send) {
+  const app = await connect();
+  const frames = app.llm.stream({ messages: [{ role: "user", content: message }] });
+  let text = "";
+  for await (const frame of frames) {
+    if (frame?.event === "error") throw new Error(frame.message || frame.code || "The model call failed");
+    const delta = frame?.text ?? frame?.delta ?? "";
+    if (delta) {
+      text += delta;
+      send({ type: "assistant_delta", text: String(delta) });
+    }
+  }
+  if (!text) throw new Error("The model returned nothing");
+  return text;
 }
 
 function agentRun(init) {
@@ -248,8 +260,7 @@ function agentRun(init) {
       const send = (obj) => controller.enqueue(enc.encode(sse(obj)));
       send({ type: "run_started", run_id: runId });
       try {
-        const text = await completeText(req.message || "");
-        for (const chunk of text.match(/[\s\S]{1,40}/g) || []) send({ type: "assistant_delta", text: chunk });
+        const text = await streamAnswer(req.message || "", send);
         send({ type: "assistant", content: text });
         send({ type: "done" });
       } catch (e) {
