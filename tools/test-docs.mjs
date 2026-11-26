@@ -114,4 +114,25 @@ assert.equal((await api("/api/state")).tasks[0].title, "Sodium cathode co-doping
 await api("/api/task/delete", { id: made.task_id });
 assert.deepEqual((await api("/api/state")).tasks, []);
 
+// chat memory + experts: both used to be routed at the llm lane and 422'd
+const chat = await api("/api/chat/create", {});
+assert.ok(chat.chat.id.startsWith("chat-"), "chat id");
+assert.deepEqual((await api(`/api/chat?id=${chat.chat.id}`)).messages, []);
+await api("/api/chat/rename", { id: chat.chat.id, title: "Mg stability" });
+const hist = await api("/api/conversation-history?kind=chat");
+assert.equal(hist.conversations[0].title, "Mg stability");
+assert.equal((await api("/api/conversation-history?kind=chat&q=nomatch")).conversations.length, 0);
+await api("/api/conversation-history", { id: chat.chat.id, action: "export" });
+
+await api("/api/assistant/save", { name: "Cathode reviewer", description: "checks doping claims" });
+const experts = (await api("/api/assistants")).assistants;
+assert.equal(experts[0].id, "builtin-steward");
+assert.equal(experts.at(-1).name, "Cathode reviewer");
+assert.equal((await api("/api/state")).assistants.length, 2);
+
+// production storage (APS) rejects absolute keys, so none may be written
+const absolute = [...store.keys()].filter((k) => k.startsWith("/"));
+assert.deepEqual(absolute, [], `absolute keys: ${absolute.join(", ")}`);
+
 console.log("OK: notes, folders, to-dos and projects persist through app storage");
+console.log("OK: chat memory, experts, and relative storage keys");

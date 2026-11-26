@@ -58,13 +58,6 @@ const PREFIX_KINDS = [
 
   // model work -> host llm / agent sessions
   ["/api/agent/", "llm"],
-  ["/api/agent-settings/", "llm"],
-  ["/api/agent-settings", "llm"],
-  ["/api/models", "llm"],
-  ["/api/chat/", "llm"],
-  ["/api/chat", "llm"],
-  ["/api/assistant/", "llm"],
-  ["/api/assistant", "llm"],
   ["/api/workflow/execution", "job"],
   ["/api/project-tasks/", "job"],
   ["/api/project-tasks", "job"],
@@ -216,12 +209,29 @@ const DOC = {
   },
   "/api/conversation-history": (body, params) =>
     body && body.action ? chatHistoryAction(body) : chatHistory(body, params),
+  "/api/assistants": () => assistantList(),
+  "/api/assistant/list": () => assistantList(),
+  "/api/assistant/save": (body) => assistantSave(body),
+  "/api/assistant/delete": (body) => assistantDelete(body),
+  "/api/assistant/toggle": (body) => assistantPatch(body?.id, { enabled: body?.enabled ? 1 : 0 }),
+  "/api/assistant/batch-toggle": async (body) => {
+    for (const id of body?.ids || []) await assistantPatch(id, { enabled: body?.enabled ? 1 : 0 });
+    return { ok: true };
+  },
+  "/api/models": () => ({ models: [ANNA_MODEL], active: ANNA_MODEL }),
+  "/api/models/active": (body) => ({ active: { ...ANNA_MODEL, id: body?.id || ANNA_MODEL.id } }),
+  "/api/agent-settings": (body) => settingsLane("root", body),
+  "/api/agent-settings/provider-secret": () => ({ api_key: "" }),
+  "/api/agent-settings/team-session": (body) => settingsLane("team-session", body),
+  "/api/chat/rename": (body) => upsertChat(body?.id, { title: String(body?.title || "Chat").slice(0, 80) }),
+  "/api/chat/assistant": (body) => upsertChat(body?.id, { assistant_id: body?.assistant_id || "" }),
+  "/api/chat/bind": (body) => upsertChat(body?.id, { project_id: body?.project_id || "" }),
+  "/api/chat/outdir": () => ({ ok: true }),
+  "/api/chat/delete": (body) => chatHistoryAction({ id: body?.id, action: "trash" }),
   // The project list is the spine: every other screen hangs off a project id,
   // and Anna has no project backend, so it lives in storage too.
-  "/api/state": async () => ({
-    ...structuredClone(SEEDS["/api/state"]),
-    tasks: await readKey(PROJECT_KEY, []),
-  }),
+  "/api/state": () => appState(),
+  "/api/agent-settings/state": () => appState(),
 
   "/api/task/create": async (body) => {
     const title = String(body.title || "").trim();
@@ -507,6 +517,10 @@ export async function request(path, { method = "GET", body } = {}) {
   if (cleanPath === "/api/paper-toolbox/start") return startToolRun(body);
   const doc = DOC[cleanPath];
   if (doc) return doc(body || {}, new URLSearchParams(String(path).split("?")[1] || ""));
+  if (cleanPath.startsWith("/api/agent-settings/")) {
+    // provider editors and the like: keyed storage instead of a null read
+    return settingsLane(cleanPath.slice("/api/agent-settings/".length), body);
+  }
   const route = resolve(path);
   if (!route) throw new Error(`scholarOS: no route for ${path} yet`);
 
@@ -557,7 +571,7 @@ export async function request(path, { method = "GET", body } = {}) {
   switch (route.kind) {
     case "tool": {
       const out = await call("tools", "invoke", {
-        tool_id: route.tool,
+        tool_id: await executaId(),
         method: route.method,
         args: { path: route.path || path, ...(body || {}) },
       });
@@ -630,6 +644,18 @@ function sseStream(runId, work) {
   return new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 }
 
+// A model-backed tool is not a chat message: without its instruction the model
+// just answers the raw text conversationally (it used to "polish" a translate
+// job). An edited prompt on the panel wins over the built-in one.
+function toolPrompt(entry) {
+  const body = entry?.body || {};
+  const text = String(body.text || "");
+  const custom = String(body.prompt || body.prompt_template || "").trim();
+  const base = custom || (TOOL_PROMPTS[entry?.tool] ? TOOL_PROMPTS[entry.tool](body) : "");
+  if (!base) return text;
+  return base.includes("{text}") ? base.replace("{text}", text) : base + "\n\n" + text;
+}
+
 function agentRun(init) {
   let req = {};
   try { req = JSON.parse(init.body || "{}"); } catch (e) { /* keep {} */ }
@@ -640,7 +666,8 @@ function agentRun(init) {
       await runLocalTool(entry, send);
       return;
     }
-    const text = await streamAnswer(req.message || entry?.body?.text || "", send);
+    const prompt = entry ? toolPrompt(entry) : req.message || "";
+    const text = await streamAnswer(prompt, send);
     if (req.task_id && !entry) {
       // A chat turn, not a toolbox run: keep the log so the conversation
       // survives a reload. History must never be able to break a reply.
@@ -653,6 +680,92 @@ function agentRun(init) {
     send({ type: "assistant", content: text });
     send({ type: "done", content: text });
   });
+}
+
+// ---- experts, model row, settings --------------------------------------
+// These used to be mapped to the llm lane, so every list/save/toggle posted an
+// empty body at llm.complete and came back 422 — the Expert page showed nothing
+// but that error.
+const ASSIST_KEY = "/doc/assistants";
+const SETTINGS_KEY = "/doc/agent-settings";
+const ANNA_MODEL = { id: "anna", name: "Anna model", api: "anna", api_key: "platform" };
+const BUILTIN_ASSISTANT = {
+  id: "builtin-steward",
+  name: "Assistant",
+  avatar: "",
+  description: "General research assistant running on the platform model.",
+  rules: "",
+  prompts: [],
+  model_id: "anna",
+  enabled: 1,
+  source: "builtin",
+};
+
+async function assistantRows() {
+  const rows = await readKey(ASSIST_KEY, []);
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function assistantList() {
+  return { assistants: [BUILTIN_ASSISTANT, ...(await assistantRows())] };
+}
+
+async function assistantSave(body) {
+  const row = {
+    id: body?.id || "as-" + uid(),
+    name: String(body?.name || "Expert").slice(0, 80),
+    avatar: body?.avatar || "",
+    description: body?.description || "",
+    rules: body?.rules || "",
+    prompts: Array.isArray(body?.prompts) ? body.prompts : [],
+    model_id: body?.model_id || "anna",
+    enabled: body?.enabled === 0 ? 0 : 1,
+    source: "user",
+  };
+  const rows = await assistantRows();
+  const at = rows.findIndex((r) => r.id === row.id);
+  if (at < 0) rows.push(row);
+  else rows[at] = { ...rows[at], ...row };
+  await writeKey(ASSIST_KEY, rows);
+  return { assistant: row };
+}
+
+async function assistantPatch(id, patchBody) {
+  if (!id || id === BUILTIN_ASSISTANT.id) return { ok: true };
+  const rows = await assistantRows();
+  const at = rows.findIndex((r) => r.id === id);
+  if (at < 0) return { ok: false };
+  rows[at] = { ...rows[at], ...patchBody };
+  await writeKey(ASSIST_KEY, rows);
+  return { assistant: rows[at] };
+}
+
+async function assistantDelete(body) {
+  const id = body?.id;
+  await writeKey(ASSIST_KEY, (await assistantRows()).filter((r) => r.id !== id));
+  return { ok: true };
+}
+
+async function settingsLane(name, body) {
+  const key = SETTINGS_KEY + "/" + (name || "root");
+  const stored = (await readKey(key, {})) || {};
+  if (body && Object.keys(body).length) {
+    await writeKey(key, { ...stored, ...body });
+    return { ...stored, ...body };
+  }
+  return stored;
+}
+
+// One shape for "the whole app state" — /api/state and the settings registry
+// the Expert page reads both come from here.
+async function appState() {
+  return {
+    ...structuredClone(SEEDS["/api/state"]),
+    tasks: await readKey(PROJECT_KEY, []),
+    assistants: (await assistantList()).assistants,
+    models: [ANNA_MODEL],
+    active: ANNA_MODEL,
+  };
 }
 
 // ---- chat memory -------------------------------------------------------
@@ -748,15 +861,28 @@ async function chatHistoryAction(body) {
 // ponytail: only these two are local; add others when their executa lands.
 const LOCAL_TOOLS = { references: "cite_format", compliance: "compliance", convert: "docx_b64" };
 const RUNS = new Map();
+let resolvedTool = "";
+async function executaId() {
+  if (resolvedTool) return resolvedTool;
+  try {
+    const rows = (await call("tools", "list", {}))?.tools || [];
+    const ids = rows.map((r) => r.tool_id).filter(Boolean);
+    resolvedTool = ids.find((id) => id === TOOL_ID) || ids.find((id) => /paper-core/.test(id)) || TOOL_ID;
+  } catch (e) {
+    resolvedTool = TOOL_ID;
+  }
+  return resolvedTool;
+}
 
 // Instruction per model-backed tool. A prompt the panel edited wins over these.
 const TOOL_PROMPTS = {
   translate: (body) =>
     `Translate the text below into ${body.direction === "en_zh" ? "Chinese" : "English"}. ` +
-    "Keep formulas, citations, numbers and heading levels exactly as they are. Return only the translation.",
+    "Keep formulas, citations, numbers and heading levels exactly as they are. " +
+    "Return only the translated text: no preamble, no commentary, no notes about your own changes.",
   polish: () =>
     "Rewrite the text below for clarity and flow without changing its technical content, numbers or citations. " +
-    "Return only the rewritten text.",
+    "Return only the rewritten text: no preamble, no commentary, no list of what you changed.",
   caption: (body) =>
     `Write one concise journal-style figure caption in ${body.lang === "zh" ? "Chinese" : "English"} from the notes below. ` +
     "Name what the figure shows and what the reader should take from it. Return only the caption.",
@@ -787,7 +913,7 @@ async function runLocalTool(entry, send) {
       : entry.tool === "convert"
         ? { text: entry.body.text || "", filename: entry.body.filename || "manuscript.docx" }
         : { text: entry.body.text || "" };
-  const out = await call("tools", "invoke", { tool_id: TOOL_ID, method, args });
+  const out = await call("tools", "invoke", { tool_id: await executaId(), method, args });
   const data = toolData(out, `paper-core.${method}`);
   if (entry.tool === "convert") {
     // There is no shared filesystem with the executa: hand the bytes to the
